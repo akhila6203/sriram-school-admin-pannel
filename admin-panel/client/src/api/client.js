@@ -6,6 +6,18 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+api.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    if (config.headers?.setContentType) {
+      config.headers.setContentType(undefined)
+    } else if (config.headers) {
+      delete config.headers['Content-Type']
+    }
+  }
+
+  return config
+})
+
 api.interceptors.response.use(
   (res) => res,
   (error) => {

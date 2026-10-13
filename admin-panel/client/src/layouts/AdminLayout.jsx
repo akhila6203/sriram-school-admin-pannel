@@ -11,13 +11,16 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Stack,
   Toolbar,
   Typography,
   useMediaQuery,
 } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
 import MenuOutlinedIcon from '@mui/icons-material/MenuOutlined'
+import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined'
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
+import { PageHeaderProvider, usePageHeader } from '../context/PageHeaderContext'
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined'
 import SchoolOutlinedIcon from '@mui/icons-material/SchoolOutlined'
 import CheckroomOutlinedIcon from '@mui/icons-material/CheckroomOutlined'
@@ -52,7 +55,7 @@ function pathTitle(pathname) {
   return item?.label || 'Admin'
 }
 
-export default function AdminLayout() {
+function AdminLayoutInner() {
   const theme = useTheme()
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -61,7 +64,9 @@ export default function AdminLayout() {
   const { showToast } = useSnackbar()
   const navigate = useNavigate()
   const location = useLocation()
-  const title = useMemo(() => pathTitle(location.pathname), [location.pathname])
+  const { config: pageHeader } = usePageHeader()
+  const fallbackTitle = useMemo(() => pathTitle(location.pathname), [location.pathname])
+  const title = pageHeader?.title || fallbackTitle
 
   useEffect(() => {
     api
@@ -165,15 +170,37 @@ export default function AdminLayout() {
 
       <Box sx={{ flexGrow: 1, width: { lg: `calc(100% - ${DRAWER_WIDTH}px)` }, minWidth: 0 }}>
         <AppBar position="sticky" color="inherit" elevation={0}>
-          <Toolbar sx={{ gap: 1 }}>
+          <Toolbar sx={{ gap: 1, flexWrap: 'wrap', py: pageHeader?.subtitle ? 1 : 0 }}>
             {!isDesktop && (
               <IconButton edge="start" onClick={() => setMobileOpen(true)} aria-label="Open menu">
                 <MenuOutlinedIcon />
               </IconButton>
             )}
-            <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 700 }}>
-              {title}
-            </Typography>
+            {pageHeader?.backTo && (
+              <IconButton
+                edge="start"
+                aria-label="Back"
+                onClick={() => navigate(pageHeader.backTo)}
+                sx={{ mr: 0.5 }}
+              >
+                <ArrowBackOutlinedIcon />
+              </IconButton>
+            )}
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.25 }}>
+                {title}
+              </Typography>
+              {pageHeader?.subtitle && (
+                <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                  {pageHeader.subtitle}
+                </Typography>
+              )}
+            </Box>
+            {pageHeader?.actions && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mr: 1 }}>
+                {pageHeader.actions}
+              </Stack>
+            )}
             <Box sx={{ textAlign: 'right', mr: 0.5 }}>
               <Typography variant="body2" fontWeight={600} lineHeight={1.2}>
                 {admin?.name}
@@ -193,5 +220,13 @@ export default function AdminLayout() {
         </Box>
       </Box>
     </Box>
+  )
+}
+
+export default function AdminLayout() {
+  return (
+    <PageHeaderProvider>
+      <AdminLayoutInner />
+    </PageHeaderProvider>
   )
 }

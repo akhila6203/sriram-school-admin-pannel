@@ -60,3 +60,9 @@ export function templateUrl() {
 export function exportUrl() {
   return '/api/admin/students/export'
 }
+
+
+export async function listStudentClasses() {
+  const { data } = await api.get('/admin/students/classes');
+  return data;
+}

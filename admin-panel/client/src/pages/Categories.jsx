@@ -11,11 +11,11 @@ import {
   Switch,
   TextField,
 } from '@mui/material'
-import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
-import PageHeader from '../components/PageHeader'
+import AddIcon from '@mui/icons-material/Add'
 import DataTable from '../components/DataTable'
 import StatusBadge from '../components/StatusBadge'
 import ConfirmDialog from '../components/ConfirmDialog'
+import TableIconActions from '../components/TableIconActions'
 import { useSnackbar } from '../context/SnackbarContext'
 import { createCategory, deleteCategory, listCategories, updateCategory } from '../api/catalog'
 
@@ -65,23 +65,37 @@ export default function Categories() {
 
   return (
     <>
-      <PageHeader
-        title="Categories"
-        subtitle="Organize products for the student catalog."
-        actions={
-          <Button
-            variant="contained"
-            startIcon={<AddOutlinedIcon />}
-            onClick={() => {
-              setEditing(null)
-              setForm(empty)
-              setFormOpen(true)
-            }}
-          >
-            Add category
-          </Button>
-        }
-      />
+     
+<Box
+  sx={{
+    display: 'flex',
+    width: '100%',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    mb: 3,
+  }}
+>
+  <Button
+    variant="contained"
+    startIcon={<AddIcon />}
+    onClick={() => {
+      setEditing(null)
+      setForm({ ...empty })
+      setFormOpen(true)
+    }}
+    sx={{
+      ml: 'auto',
+      borderRadius: 2,
+      textTransform: 'none',
+      px: 3,
+      py: 1.2,
+      fontWeight: 600,
+    }}
+  >
+    Add Category
+  </Button>
+</Box>
+
 
       <DataTable
         columns={[
@@ -95,24 +109,22 @@ export default function Categories() {
           },
           {
             id: 'actions',
-            label: '',
+            label: 'Actions',
             align: 'right',
+            width: 100,
             render: (r) => (
-              <Stack direction="row" spacing={1} justifyContent="flex-end" onClick={(e) => e.stopPropagation()}>
-                <Button
-                  size="small"
-                  onClick={() => {
+              <Box onClick={(e) => e.stopPropagation()}>
+                <TableIconActions
+                  editLabel="Edit Category"
+                  deleteLabel="Delete Category"
+                  onEdit={() => {
                     setEditing(r)
                     setForm({ name: r.name, sortOrder: r.sortOrder, isActive: r.isActive })
                     setFormOpen(true)
                   }}
-                >
-                  Edit
-                </Button>
-                <Button size="small" color="error" onClick={() => setDeleteId(r.id)}>
-                  Delete
-                </Button>
-              </Stack>
+                  onDelete={() => setDeleteId(r.id)}
+                />
+              </Box>
             ),
           },
         ]}
@@ -123,11 +135,11 @@ export default function Categories() {
         emptyDescription="Create a category to group products."
       />
 
-      <Dialog open={formOpen} onClose={() => setFormOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>{editing ? 'Edit category' : 'Add category'}</DialogTitle>
+      <Dialog open={formOpen} onClose={() => setFormOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>{editing ? 'Edit Category' : 'Add Category'}</DialogTitle>
         <Box component="form" onSubmit={onSave}>
-          <DialogContent>
-            <Stack spacing={2}>
+          <DialogContent sx={{ pt: 1 }}>
+            <Stack spacing={2.5}>
               <TextField
                 label="Name"
                 required
@@ -153,9 +165,11 @@ export default function Categories() {
               />
             </Stack>
           </DialogContent>
-          <DialogActions>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
             <Button onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="contained">Save</Button>
+            <Button type="submit" variant="contained">
+              Save
+            </Button>
           </DialogActions>
         </Box>
       </Dialog>

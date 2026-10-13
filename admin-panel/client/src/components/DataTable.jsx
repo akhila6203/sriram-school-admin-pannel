@@ -42,7 +42,7 @@ export default function DataTable({
 
   return (
     <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-      <TableContainer sx={{ maxHeight: '70vh' }}>
+      <TableContainer className="scrollbar-hidden" sx={{ maxHeight: '70vh', overflowX: 'auto' }}>
         <Table stickyHeader={stickyHeader} size="small">
           <TableHead>
             <TableRow>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import {
   Avatar,
+  Box,
   Button,
   Checkbox,
   MenuItem,
@@ -9,18 +10,18 @@ import {
   Switch,
   TextField,
 } from '@mui/material'
-import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
-import PageHeader from '../components/PageHeader'
+import AddIcon from '@mui/icons-material/Add'
 import DataTable from '../components/DataTable'
 import StatusBadge from '../components/StatusBadge'
 import ConfirmDialog from '../components/ConfirmDialog'
+import TableIconActions from '../components/TableIconActions'
 import usePaginatedList from '../hooks/usePaginatedList'
 import { useSnackbar } from '../context/SnackbarContext'
+import { useRegisterPageHeader } from '../context/PageHeaderContext'
 import { formatDate, formatINR } from '../utils/format'
 import {
   bulkProductStatus,
   deleteProduct,
-  duplicateProduct,
   listCategories,
   listProducts,
   updateProduct,
@@ -40,6 +41,15 @@ export default function Products() {
   const [selected, setSelected] = useState([])
   const [deleteId, setDeleteId] = useState(null)
 
+ useRegisterPageHeader(
+  {
+    title: 'Products',
+    subtitle: '',
+    backTo: null,
+  },
+  []
+)
+
   const fetcher = useMemo(() => (params) => listProducts(params), [])
   const { items, pagination, loading, error, page, pageSize, setPage, setPageSize, reload } =
     usePaginatedList(fetcher, filters)
@@ -54,20 +64,44 @@ export default function Products() {
 
   return (
     <>
-      <PageHeader
-        title="Products"
-        subtitle="Catalog, variants, tax, and student visibility."
-        actions={
-          <Button
-            component={RouterLink}
-            to="/admin/products/new"
-            variant="contained"
-            startIcon={<AddOutlinedIcon />}
-          >
-            Add product
-          </Button>
-        }
-      />
+      {/* <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
+        <Button
+          component={RouterLink}
+          to="/admin/products/new"
+          variant="contained"
+          startIcon={<AddIcon />}
+        >
+          Add Product
+        </Button>
+      </Stack> */}
+      
+<Box
+  sx={{
+    display: 'flex',
+    width: '100%',
+    justifyContent: 'flex-end',
+    mb: 3,
+  }}
+>
+  <Button
+    component={RouterLink}
+    to="/admin/products/new"
+    variant="contained"
+    startIcon={<AddIcon />}
+    sx={{
+      ml: 'auto',
+      minWidth: 155,
+      borderRadius: 2,
+      textTransform: 'none',
+      px: 3,
+      py: 1.2,
+      fontWeight: 600,
+    }}
+  >
+    Add Product
+  </Button>
+</Box>
+
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 2 }} useFlexGap flexWrap="wrap">
         <TextField
@@ -85,7 +119,9 @@ export default function Products() {
         >
           <MenuItem value="">All</MenuItem>
           {categories.map((c) => (
-            <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+            <MenuItem key={c.id} value={c.id}>
+              {c.name}
+            </MenuItem>
           ))}
         </TextField>
         <TextField
@@ -206,27 +242,20 @@ export default function Products() {
           { id: 'created', label: 'Created', render: (r) => formatDate(r.createdAt) },
           {
             id: 'actions',
-            label: '',
+            label: 'Actions',
             align: 'right',
+            width: 120,
             render: (r) => (
-              <Stack direction="row" spacing={0.5} justifyContent="flex-end" onClick={(e) => e.stopPropagation()}>
-                <Button size="small" component={RouterLink} to={`/admin/products/${r.id}`}>
-                  Edit
-                </Button>
-                <Button
-                  size="small"
-                  onClick={async () => {
-                    const res = await duplicateProduct(r.id)
-                    showToast('Duplicated', 'success')
-                    navigate(`/admin/products/${res.data.id}`)
-                  }}
-                >
-                  Copy
-                </Button>
-                <Button size="small" color="error" onClick={() => setDeleteId(r.id)}>
-                  Delete
-                </Button>
-              </Stack>
+              <Box onClick={(e) => e.stopPropagation()}>
+                <TableIconActions
+                  viewLabel="View Product"
+                  editLabel="Edit Product"
+                  deleteLabel="Delete Product"
+                  onView={() => navigate(`/admin/products/${r.id}`)}
+                  onEdit={() => navigate(`/admin/products/${r.id}/edit`)}
+                  onDelete={() => setDeleteId(r.id)}
+                />
+              </Box>
             ),
           },
         ]}
