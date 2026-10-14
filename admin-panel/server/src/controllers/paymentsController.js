@@ -15,9 +15,11 @@ async function listPayments(req, res, next) {
       status: z.string().optional().default(''),
     });
     const q = schema.parse(req.query);
-    let query = db('payment_transactions as t')
-      .join('orders as o', 'o.id', 't.order_id')
-      .select('t.*', 'o.order_number');
+   let query = db('payment_transactions as t')
+  .join('orders as o', 'o.id', 't.order_id')
+  .where('t.status', 'success')
+  .where('o.payment_status', 'paid')
+  .select('t.*', 'o.order_number');
     if (q.search) {
       const s = `%${q.search}%`;
       query = query.andWhere((b) =>
@@ -60,6 +62,49 @@ async function listPayments(req, res, next) {
     });
   } catch (err) {
     next(err.name === 'ZodError' ? new AppError('Validation failed', 400, err.issues) : err);
+  }
+}
+
+async function paymentSummary(req, res, next) {
+  try {
+    const summary = await db('payment_transactions as t')
+      .join('orders as o', 'o.id', 't.order_id')
+      .where('t.status', 'success')
+      .where('o.payment_status', 'paid')
+      .select(
+        db.raw('COUNT(*) AS totalTransactions'),
+        db.raw('COALESCE(SUM(t.amount), 0) AS totalCollection')
+      )
+      .first();
+
+    const itemSummary = await db('order_items as oi')
+      .join('orders as o', 'o.id', 'oi.order_id')
+      .where('o.payment_status', 'paid')
+      .whereExists(function () {
+        this.select(db.raw('1'))
+          .from('payment_transactions as t')
+          .whereRaw('t.order_id = o.id')
+          .where('t.status', 'success');
+      })
+      .select(
+        db.raw('COALESCE(SUM(oi.quantity), 0) AS totalItems')
+      )
+      .first();
+
+    const totalTransactions =
+      Number(summary?.totalTransactions || 0);
+
+    res.json({
+      success: true,
+      data: {
+        totalTransactions,
+        successful: totalTransactions,
+        totalItems: Number(itemSummary?.totalItems || 0),
+        totalCollection: Number(summary?.totalCollection || 0),
+      },
+    });
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -335,6 +380,7 @@ async function refundOrder(req, res, next) {
 
 module.exports = {
   listPayments,
+   paymentSummary,
   exportPayments,
   recheckStatus,
   refundOrder,

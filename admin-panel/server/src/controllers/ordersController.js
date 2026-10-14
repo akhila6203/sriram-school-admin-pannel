@@ -40,7 +40,12 @@ function mapOrder(row) {
 
 async function counts(req, res, next) {
   try {
-    const rows = await db('orders').select('status').count({ c: '*' }).groupBy('status');
+    const rows = await db('orders')
+  .where('payment_status', 'paid')
+  .select('status')
+  .count({ c: '*' })
+  .groupBy('status');
+    // const rows = await db('orders').select('status').count({ c: '*' }).groupBy('status');
     const map = {
       placed: 0,
       confirmed: 0,

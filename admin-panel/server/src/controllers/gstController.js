@@ -90,8 +90,9 @@ async function documents(req, res, next) {
       : [];
     const bounds = rangeFromQuery(q);
     let query = db('orders as o')
-      .join('students as s', 's.id', 'o.student_id')
-      .select('o.*', 's.student_name', 's.admission_number');
+  .join('students as s', 's.id', 'o.student_id')
+  .where('o.payment_status', 'paid')
+  .select('o.*', 's.student_name', 's.admission_number');
     applyOrderFilters(query, q, bounds);
     const countRow = await query.clone().clearSelect().count({ total: '*' }).first();
     const total = Number(countRow.total);
@@ -100,7 +101,13 @@ async function documents(req, res, next) {
       .limit(q.pageSize)
       .offset((q.page - 1) * q.pageSize);
 
-    const statsQuery = db('orders as o').whereBetween('o.created_at', [bounds.from, bounds.to]);
+      const statsQuery = db('orders as o')
+  .where('o.payment_status', 'paid')
+  .whereBetween('o.created_at', [
+    bounds.from,
+    bounds.to,
+  ]);
+    // const statsQuery = db('orders as o').whereBetween('o.created_at', [bounds.from, bounds.to]);
     if (q.studentIds.length) statsQuery.whereIn('o.student_id', q.studentIds);
     const stats = await statsQuery
       .select(
@@ -143,37 +150,112 @@ async function summary(req, res, next) {
 
 async function download(req, res, next) {
   try {
-    const type = req.query.type === 'packing-slip' ? 'packing-slip' : 'invoice';
-    const ids = String(req.query.orderIds || '')
-      .split(',')
-      .map((n) => Number(n))
-      .filter(Boolean);
-    if (!ids.length) throw new AppError('orderIds required', 400);
+    const type =
+      req.query.type === 'packing-slip'
+        ? 'packing-slip'
+        : 'invoice';
+
+    const rawIds = String(req.query.orderIds || '').trim();
+
+    const ids = [
+      ...new Set(
+        rawIds
+          .split(',')
+          .map(Number)
+          .filter((n) => Number.isSafeInteger(n) && n > 0)
+      ),
+    ];
+
+    let ordersQuery = db('orders as o')
+      .join('students as s', 's.id', 'o.student_id')
+      .where('o.payment_status', 'paid')
+      .select(
+        'o.*',
+        's.student_name',
+        's.admission_number',
+        's.house_color'
+      );
+
+    if (ids.length) {
+      // Selected checkboxes or individual download
+      ordersQuery.whereIn('o.id', ids);
+    } else {
+      // No checkboxes: download all paid orders
+      // matching selected date range
+      const q = {
+        range: String(req.query.range || 'this_month'),
+        from: req.query.from,
+        to: req.query.to,
+        studentIds: String(req.query.studentIds || '')
+          .split(',')
+          .map(Number)
+          .filter(Boolean),
+      };
+
+      const bounds = rangeFromQuery(q);
+
+      applyOrderFilters(ordersQuery, q, bounds);
+    }
+
+    const orders = await ordersQuery
+      .orderBy('o.created_at', 'desc')
+      .orderBy('o.id', 'desc');
+
+    if (!orders.length) {
+      throw new AppError(
+        'No paid orders found for selected filters',
+        404
+      );
+    }
+
     const profile = await getProfileRow();
-    const docs = [];
-    for (const id of ids) {
-      const order = await db('orders as o')
-        .join('students as s', 's.id', 'o.student_id')
-        .select('o.*', 's.student_name', 's.admission_number', 's.house_color')
-        .where('o.id', id)
-        .first();
-      if (!order) continue;
-      const items = await db('order_items').where({ order_id: id });
-      const student = {
+
+    const orderIds = orders.map((o) => o.id);
+
+    const allItems = await db('order_items')
+      .whereIn('order_id', orderIds);
+
+    const itemsByOrder = new Map();
+
+    for (const item of allItems) {
+      const key = Number(item.order_id);
+
+      if (!itemsByOrder.has(key)) {
+        itemsByOrder.set(key, []);
+      }
+
+      itemsByOrder.get(key).push(item);
+    }
+
+    const docs = orders.map((order) => ({
+      profile,
+      order,
+      items: itemsByOrder.get(Number(order.id)) || [],
+      student: {
         student_name: order.student_name,
         admission_number: order.admission_number,
         house_color: order.house_color,
-      };
-      docs.push({ profile, order, items, student });
-    }
-    if (!docs.length) throw new AppError('No matching orders', 404);
-    const out = type === 'invoice' ? await invoicesPdf(docs) : await packingSlipsPdf(docs);
+      },
+    }));
+
+    const output =
+      type === 'invoice'
+        ? await invoicesPdf(docs)
+        : await packingSlipsPdf(docs);
+
+    const filename =
+      ids.length === 1
+        ? `${type}-${orders[0].order_number}.pdf`
+        : `${type}-${ids.length ? 'selected' : 'filtered'}-${orders.length}-orders.pdf`;
+
     res.setHeader('Content-Type', 'application/pdf');
+
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${type}-${ids.join('-')}.pdf"`
+      `attachment; filename="${filename}"`
     );
-    res.send(out);
+
+    res.send(output);
   } catch (err) {
     next(err);
   }
@@ -415,6 +497,393 @@ async function summaryData() {
   return { monthly: monthRows, rateWise: rateWiseRows, hsnWise: hsnWiseRows };
 }
 
+
+// ============================================
+// PRODUCT GST SALES REGISTER
+// ============================================
+
+function gstRegisterDates(query) {
+  const now = dayjs().tz('Asia/Kolkata');
+  const year = Number(query.year) || now.year();
+  const month = Number(query.month) || now.month() + 1;
+
+  let start;
+  let end;
+
+  switch (query.period) {
+    case 'today':
+      start = now.startOf('day');
+      end = now.endOf('day');
+      break;
+
+    case 'date':
+      start = dayjs.tz(
+        query.date || now.format('YYYY-MM-DD'),
+        'Asia/Kolkata'
+      ).startOf('day');
+      end = start.endOf('day');
+      break;
+
+    case 'date_range':
+      if (!query.from || !query.to) {
+        throw new AppError('Select From and To dates', 400);
+      }
+      start = dayjs.tz(query.from, 'Asia/Kolkata').startOf('day');
+      end = dayjs.tz(query.to, 'Asia/Kolkata').endOf('day');
+      break;
+
+    case 'week':
+      start = now.subtract(6, 'day').startOf('day');
+      end = now.endOf('day');
+      break;
+
+    case 'year':
+      start = dayjs.tz(`${year}-01-01`, 'Asia/Kolkata');
+      end = start.endOf('year');
+      break;
+
+    case 'month':
+    default:
+      start = dayjs.tz(
+        `${year}-${String(month).padStart(2, '0')}-01`,
+        'Asia/Kolkata'
+      );
+      end = start.endOf('month');
+  }
+
+  if (
+    !start.isValid() ||
+    !end.isValid() ||
+    start.isAfter(end)
+  ) {
+    throw new AppError('Invalid date range', 400);
+  }
+
+  return {
+    from: start.format('YYYY-MM-DD HH:mm:ss'),
+    to: end.format('YYYY-MM-DD HH:mm:ss'),
+  };
+}
+
+async function getGstRegisterRows(query) {
+  const dates = gstRegisterDates(query);
+
+  const rows = await db('order_items as oi')
+    .join('orders as o', 'o.id', 'oi.order_id')
+    .where('o.payment_status', 'paid')
+    .whereBetween('o.created_at', [dates.from, dates.to])
+    .select(
+      'oi.id',
+      'oi.order_id',
+      'oi.name_snapshot',
+      'oi.option_snapshot',
+      'oi.sku_snapshot',
+      'oi.hsn_code',
+      'oi.quantity',
+      'oi.unit_price',
+      'oi.line_total',
+      'oi.taxable_value',
+      'oi.gst_rate',
+      'oi.cgst',
+      'oi.sgst',
+      'oi.igst',
+      'o.invoice_number',
+      'o.order_number',
+      'o.created_at',
+      'o.shipping'
+    )
+    .orderBy('o.created_at', 'desc')
+    .orderBy('oi.id', 'desc');
+
+  const countByOrder = {};
+  rows.forEach((row) => {
+    countByOrder[row.order_id] =
+      (countByOrder[row.order_id] || 0) + 1;
+  });
+
+  return rows.map((row) => {
+    const cgst = Number(row.cgst || 0);
+    const sgst = Number(row.sgst || 0);
+    const igst = Number(row.igst || 0);
+    const gst = cgst + sgst + igst;
+    const value = Number(row.line_total || 0);
+    const quantity = Number(row.quantity || 0);
+    const shipping = Number(row.shipping || 0);
+
+    // Shipping is an order-level charge.
+    // Allocate it across product rows without duplicating it.
+    const itemCount = countByOrder[row.order_id] || 1;
+    const orderRows = rows.filter(
+      (item) => item.order_id === row.order_id
+    );
+    const rowIndex = orderRows.findIndex(
+      (item) => item.id === row.id
+    );
+
+    const baseShare =
+      Math.round((shipping / itemCount) * 100) / 100;
+
+    const allocatedShipping =
+      rowIndex === itemCount - 1
+        ? Number(
+            (
+              shipping -
+              baseShare * (itemCount - 1)
+            ).toFixed(2)
+          )
+        : baseShare;
+
+    return {
+      ...row,
+      product_name: [
+        row.name_snapshot,
+        row.option_snapshot,
+      ].filter(Boolean).join(' - '),
+      quantity,
+      rate: Number(row.unit_price || 0),
+      value,
+      taxable: Number(row.taxable_value || 0),
+      gst,
+      sgst_percent: igst > 0 ? 0 : Number(row.gst_rate || 0) / 2,
+      cgst_percent: igst > 0 ? 0 : Number(row.gst_rate || 0) / 2,
+      igst_percent: igst > 0 ? Number(row.gst_rate || 0) : 0,
+      cgst,
+      sgst,
+      igst,
+      shipping_amount: allocatedShipping,
+      total_with_shipping: Number(
+        (value + allocatedShipping).toFixed(2)
+      ),
+    };
+  });
+}
+
+async function gstRegister(req, res, next) {
+  try {
+    const rows = await getGstRegisterRows(req.query);
+
+    const monthNames = [
+  "January", "February", "March", "April",
+  "May", "June", "July", "August",
+  "September", "October", "November", "December",
+];
+
+const {
+  period = "month",
+  year,
+  month,
+  date,
+  from,
+  to,
+} = req.query;
+
+const now = dayjs().tz("Asia/Kolkata");
+
+let periodLabel = "GST Sales Register";
+
+if (period === "month") {
+  const selectedYear = Number(year) || now.year();
+  const selectedMonth = Number(month) || now.month() + 1;
+
+  periodLabel += ` - ${monthNames[selectedMonth - 1]} ${selectedYear}`;
+} else if (period === "year") {
+  periodLabel += ` - Year ${Number(year) || now.year()}`;
+} else if (period === "date") {
+  periodLabel += ` - ${date || now.format("YYYY-MM-DD")}`;
+} else if (period === "date_range") {
+  periodLabel += ` - ${from} to ${to}`;
+} else if (period === "today") {
+  periodLabel += ` - ${now.format("DD/MM/YYYY")}`;
+} else if (period === "week") {
+  periodLabel += " - This Week";
+}
+
+    res.json({
+      success: true,
+      data: {
+        items: rows,
+        total: rows.length,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function gstRegisterExport(req, res, next) {
+  try {
+    const rows = await getGstRegisterRows(req.query);
+
+    const search = String(req.query.search || '')
+      .trim()
+      .toLowerCase();
+
+    let filtered = search
+      ? rows.filter((row) =>
+          [
+            row.product_name,
+            row.sku_snapshot,
+            row.hsn_code,
+            row.invoice_number,
+            row.order_number,
+          ].some((value) =>
+            String(value || '').toLowerCase().includes(search)
+          )
+        )
+      : rows;
+
+    const sort = String(req.query.sort || 'newest');
+
+    const sorters = {
+      newest: (a, b) =>
+        new Date(b.created_at) - new Date(a.created_at),
+      oldest: (a, b) =>
+        new Date(a.created_at) - new Date(b.created_at),
+      invoice: (a, b) =>
+        String(a.invoice_number || '').localeCompare(
+          String(b.invoice_number || ''),
+          undefined,
+          { numeric: true }
+        ),
+      order: (a, b) =>
+        String(a.order_number || '').localeCompare(
+          String(b.order_number || ''),
+          undefined,
+          { numeric: true }
+        ),
+      product: (a, b) =>
+        a.product_name.localeCompare(b.product_name),
+      highest_value: (a, b) => b.value - a.value,
+      lowest_value: (a, b) => a.value - b.value,
+      highest_gst: (a, b) => b.gst - a.gst,
+      lowest_gst: (a, b) => a.gst - b.gst,
+    };
+
+    filtered = [...filtered].sort(
+      sorters[sort] || sorters.newest
+    );
+
+    const excelRows = filtered.map((r, index) => ({
+      'S.No': index + 1,
+      'Date': dayjs(r.created_at).format('DD/MM/YYYY'),
+      'Invoice Number': r.invoice_number || '',
+      'Order Number': r.order_number || '',
+      'Product Name / Size': r.product_name,
+      'Product SKU': r.sku_snapshot || '',
+      'HSN Code': r.hsn_code || '',
+      'Quantity': r.quantity,
+      'Rate': r.rate,
+      'Value': r.value,
+      'Tax': r.gst,
+      'Taxable Value': r.taxable,
+      'SGST %': r.sgst_percent,
+      'CGST %': r.cgst_percent,
+      'IGST %': r.igst_percent,
+      'SGST Amount': r.sgst,
+      'CGST Amount': r.cgst,
+      'IGST Amount': r.igst,
+      'Total GST': r.gst,
+      'Shipping Amount': r.shipping_amount,
+      'Total With Shipping': r.total_with_shipping,
+    }));
+
+    const workbook = XLSX.utils.book_new();
+
+const sheet = XLSX.utils.json_to_sheet(excelRows, {
+  origin: "A3",
+  header: [
+        'S.No',
+        'Date',
+        'Invoice Number',
+        'Order Number',
+        'Product Name / Size',
+        'Product SKU',
+        'HSN Code',
+        'Quantity',
+        'Rate',
+        'Value',
+        'Tax',
+        'Taxable Value',
+        'SGST %',
+        'CGST %',
+        'IGST %',
+        'SGST Amount',
+        'CGST Amount',
+        'IGST Amount',
+        'Total GST',
+        'Shipping Amount',
+        'Total With Shipping',
+      ],
+    });
+
+    sheet['!cols'] = [
+      { wch: 8 },
+      { wch: 14 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 34 },
+      { wch: 20 },
+      { wch: 16 },
+      { wch: 12 },
+      ...Array.from({ length: 13 }, () => ({ wch: 18 })),
+    ];
+
+    // GST register period heading
+XLSX.utils.sheet_add_aoa(
+  sheet,
+  [[periodLabel]],
+  { origin: "A1" }
+);
+
+// Merge heading across all 21 columns
+sheet["!merges"] = [
+  ...(sheet["!merges"] || []),
+  {
+    s: { r: 0, c: 0 },
+    e: { r: 0, c: 20 },
+  },
+];
+
+// Heading row height
+sheet["!rows"] = [
+  { hpt: 30 },
+  { hpt: 10 },
+];
+    XLSX.utils.book_append_sheet(
+      workbook,
+      sheet,
+      'GST Sales Register'
+    );
+
+    const buffer = XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+
+   const filePeriod = periodLabel
+  .replace("GST Sales Register", "")
+  .trim()
+  .replace(/[^a-zA-Z0-9]+/g, "-")
+  .replace(/^-|-$/g, "")
+  .toLowerCase();
+
+res.setHeader(
+  "Content-Disposition",
+  `attachment; filename="gst-sales-register-${filePeriod || "report"}.xlsx"`
+);
+
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+}
+
+
 module.exports = {
   documents,
   summary,
@@ -422,6 +891,7 @@ module.exports = {
   hsnWise,
   download,
   exportXlsx,
+   gstRegister,
   getProfile,
   putProfile,
   getEmailSchedule,
@@ -432,4 +902,6 @@ module.exports = {
   patchProductTax,
   rangeFromQuery,
   getProfileRow,
+  gstRegister,
+gstRegisterExport,
 };
