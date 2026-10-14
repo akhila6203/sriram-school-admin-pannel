@@ -23,13 +23,57 @@ const storefrontRoutes = require('./routes/storefront');
 const app = express();
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// Admin and Student frontend URLs
+const allowedOrigins = [
+  process.env.ADMIN_CLIENT_ORIGIN,
+  process.env.STUDENT_CLIENT_ORIGIN,
+]
+  .filter(Boolean)
+  .map((origin) => origin.trim().replace(/\/$/, ""));
+
+// Allow both frontend applications
 app.use(
   cors({
-    origin: env.clientOrigin,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error(`CORS blocked origin: ${origin}`)
+      );
+    },
+
     credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-API-Key",
+    ],
   })
 );
+
 app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
+// app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+// app.use(
+//   cors({
+//     origin: env.clientOrigin,
+//     credentials: true,
+//   })
+// );
+// app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
+
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

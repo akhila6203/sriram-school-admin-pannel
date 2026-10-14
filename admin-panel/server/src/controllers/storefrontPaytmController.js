@@ -43,6 +43,18 @@ async function initiate(req, res, next) {
       order = await db('orders').where({ id: fakeRes.payload.data.order.id }).first();
     }
     if (!order) throw new AppError('Order not found', 404);
+
+    if (Number(order.student_id) !== Number(req.student.id)) {
+  throw new AppError("Access denied", 403);
+}
+
+if (order.payment_status === "failed") {
+  throw new AppError(
+    "This order has failed. Please start a new order.",
+    409
+  );
+}
+
     if (order.payment_status === 'paid') throw new AppError('Order already paid', 400);
 
     const student = await db('students').where({ id: order.student_id }).first();
@@ -84,24 +96,81 @@ async function initiate(req, res, next) {
 async function callback(req, res, next) {
   try {
     const params = req.body || {};
+
     const verified = await paytmService.verifyCallback(params);
+
     const paytmOrderId = params.ORDERID;
-    const order = await db('orders').where({ paytm_order_id: paytmOrderId }).first();
-    if (!order) throw new AppError('Order not found for Paytm id', 404);
+
+    if (!paytmOrderId) {
+      throw new AppError("Missing Paytm Order ID", 400);
+    }
+
+    const order = await db("orders")
+      .where({
+        paytm_order_id: paytmOrderId,
+      })
+      .first();
+
+    if (!order) {
+      throw new AppError(
+        "Order not found for Paytm transaction",
+        404
+      );
+    }
+if (paymentsController.resultPaid(verified.statusJson)) {
+  const gatewayBody = verified.statusJson?.body || {};
+
+  if (
+    String(gatewayBody.orderId) !==
+    String(order.paytm_order_id)
+  ) {
+    throw new AppError("Paytm order ID mismatch", 400);
+  }
+
+  if (
+    !Number.isFinite(Number(gatewayBody.txnAmount)) ||
+    Math.abs(
+      Number(gatewayBody.txnAmount) -
+      Number(order.total)
+    ) > 0.001
+  ) {
+    throw new AppError("Paytm amount mismatch", 400);
+  }
+}
     await db.transaction(async (trx) => {
-      const locked = await trx('orders').where({ id: order.id }).forUpdate().first();
+      const locked = await trx("orders")
+        .where({ id: order.id })
+        .forUpdate()
+        .first();
+
       if (paymentsController.resultPaid(verified.statusJson)) {
-        await paymentsController.applyPaidResult(trx, locked, verified.statusJson, paytmOrderId);
-      } else {
-        await paymentsController.applyFailed(
+        await paymentsController.applyPaidResult(
           trx,
           locked,
-          paytmOrderId,
-          verified.statusJson?.body?.resultInfo?.resultMsg
+          verified.statusJson,
+          paytmOrderId
         );
+      } else {
+        const gatewayStatus =
+          verified.statusJson?.body?.resultInfo?.resultStatus;
+
+        // Do not mark pending payments as failed.
+        // if (gatewayStatus === "F") {
+        if (gatewayStatus === "TXN_FAILURE") {
+          await paymentsController.applyFailed(
+            trx,
+            locked,
+            paytmOrderId,
+            verified.statusJson?.body?.resultInfo?.resultMsg
+          );
+        }
       }
     });
-    res.json({ success: true, message: 'Callback processed' });
+
+    return res.json({
+      success: true,
+      message: "Paytm callback processed",
+    });
   } catch (err) {
     next(err);
   }
@@ -109,9 +178,99 @@ async function callback(req, res, next) {
 
 async function status(req, res, next) {
   try {
-    const order = await db('orders').where({ order_number: req.params.orderNumber }).first();
-    if (!order) throw new AppError('Order not found', 404);
-    res.json({
+    let order = await db("orders")
+      .where({
+        order_number: req.params.orderNumber,
+      })
+      .first();
+
+    if (!order) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (Number(order.student_id) !== Number(req.student.id)) {
+      throw new AppError("Access denied", 403);
+    }
+
+    // Already paid orders need no further gateway request.
+    if (
+      order.payment_status === "pending" &&
+      order.paytm_order_id
+    ) {
+      const gatewayResponse = await paytmService.getStatus(
+        order.paytm_order_id
+      );
+
+      const gatewayBody = gatewayResponse?.body || {};
+      const resultStatus =
+        gatewayBody?.resultInfo?.resultStatus;
+
+      if (resultStatus === "TXN_SUCCESS") {
+        // Verify the response matches the original order.
+        if (
+          String(gatewayBody.orderId) !==
+          String(order.paytm_order_id)
+        ) {
+          throw new AppError(
+            "Paytm order ID mismatch",
+            400
+          );
+        }
+
+        if (
+          !Number.isFinite(Number(gatewayBody.txnAmount)) ||
+          Math.abs(
+            Number(gatewayBody.txnAmount) -
+            Number(order.total)
+          ) > 0.001
+        ) {
+          throw new AppError(
+            "Paytm payment amount mismatch",
+            400
+          );
+        }
+
+        await db.transaction(async (trx) => {
+          const lockedOrder = await trx("orders")
+            .where({ id: order.id })
+            .forUpdate()
+            .first();
+
+          if (lockedOrder.payment_status === "pending") {
+            await paymentsController.applyPaidResult(
+              trx,
+              lockedOrder,
+              gatewayResponse,
+              order.paytm_order_id
+            );
+          }
+        });
+      }else if (resultStatus === "TXN_FAILURE") {
+  await db.transaction(async (trx) => {
+    const lockedOrder = await trx("orders")
+      .where({ id: order.id })
+      .forUpdate()
+      .first();
+
+    if (lockedOrder.payment_status === "pending") {
+      await paymentsController.applyFailed(
+        trx,
+        lockedOrder,
+        order.paytm_order_id,
+        gatewayBody?.resultInfo?.resultMsg ||
+          "Payment failed"
+      );
+    }
+  });
+}
+    }
+
+    // Return latest database status after verification.
+    order = await db("orders")
+      .where({ id: order.id })
+      .first();
+
+    return res.json({
       success: true,
       data: {
         orderNumber: order.order_number,

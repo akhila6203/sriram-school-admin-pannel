@@ -141,14 +141,86 @@ async function applyPaidResult(trx, order, statusJson, paytmOrderId) {
     }
   }
 
-  await assignInvoiceIfNeeded(trx, order);
-  await trx('orders').where({ id: order.id }).update({
-    payment_status: 'paid',
-    status: order.status === 'placed' ? 'confirmed' : order.status,
-    stock_state: 'finalized',
-    paytm_order_id: paytmOrderId,
-    updated_at: trx.fn.now(),
+  // await assignInvoiceIfNeeded(trx, order);
+  // await trx('orders').where({ id: order.id }).update({
+  //   payment_status: 'paid',
+  //   status: order.status === 'placed' ? 'confirmed' : order.status,
+  //   stock_state: 'finalized',
+  //   paytm_order_id: paytmOrderId,
+  //   updated_at: trx.fn.now(),
+  // });
+    await assignInvoiceIfNeeded(trx, order);
+
+  await trx("orders")
+    .where({ id: order.id })
+    .update({
+      payment_status: "paid",
+      status:
+        order.status === "placed"
+          ? "confirmed"
+          : order.status,
+      stock_state: "finalized",
+      paytm_order_id: paytmOrderId,
+      updated_at: trx.fn.now(),
+    });
+
+  // Remove only the purchased quantities from the
+  // student's cart after verified successful payment.
+  const studentCart = await trx("carts")
+    .where({ student_id: order.student_id })
+    .first();
+
+  if (studentCart) {
+    const purchasedItems = await trx("order_items")
+      .where({ order_id: order.id });
+
+    for (const purchased of purchasedItems) {
+      
+let matchingQuery = trx("cart_items")
+  .where({
+    cart_id: studentCart.id,
+    product_id: purchased.product_id,
   });
+
+if (purchased.variant_id == null) {
+  matchingQuery = matchingQuery.whereNull("variant_id");
+} else {
+  matchingQuery = matchingQuery.where(
+    "variant_id",
+    purchased.variant_id
+  );
+}
+
+const matchingCartItems = await matchingQuery
+  .orderBy("id", "asc")
+  .forUpdate();
+
+
+      let remaining = Number(purchased.quantity);
+
+      for (const cartItem of matchingCartItems) {
+        if (remaining <= 0) break;
+
+        const cartQuantity = Number(cartItem.quantity);
+
+        if (cartQuantity <= remaining) {
+          await trx("cart_items")
+            .where({ id: cartItem.id })
+            .del();
+
+          remaining -= cartQuantity;
+        } else {
+          await trx("cart_items")
+            .where({ id: cartItem.id })
+            .update({
+              quantity: cartQuantity - remaining,
+            });
+
+          remaining = 0;
+        }
+      }
+    }
+  }
   if (order.status === 'placed') {
     await trx('order_status_history').insert({
       order_id: order.id,

@@ -20,6 +20,16 @@ const productBodySchema = z.object({
   gstRate: z.coerce.number().min(0).max(28).optional(),
   priceIncludesGst: z.boolean().optional().default(true),
   includeInKit: z.boolean().optional().default(true),
+  classes: z.array(
+  z.string().trim().min(1).max(50)
+).optional(),
+
+gender: z.enum([
+  "boys",
+  "girls",
+  "both",
+  "unisex",
+]).optional(),
   status: z.enum(['draft', 'active', 'archived']).optional().default('draft'),
   visibleIndividually: z.boolean().optional().default(true),
   variants: z
@@ -98,6 +108,47 @@ function mapImage(img) {
     url: img.url,
     sortOrder: img.sort_order,
     isPrimary: Boolean(img.is_primary),
+  };
+}
+
+async function saveProductEligibility(trx, productId, body) {
+  if (body.classes === undefined && body.gender === undefined) {
+    return;
+  }
+
+  const existing = await trx("product_eligibility")
+    .where({ product_id: productId });
+
+  const classes = body.classes ??
+    [...new Set(existing.map((r) => r.class_name))];
+
+  const gender = body.gender ??
+    existing[0]?.gender ??
+    "both";
+
+  await trx("product_eligibility")
+    .where({ product_id: productId })
+    .del();
+
+  const rows = [...new Set(classes)].map((className) => ({
+    product_id: productId,
+    class_name: className,
+    gender,
+  }));
+
+  if (rows.length) {
+    await trx("product_eligibility").insert(rows);
+  }
+}
+
+async function getProductEligibility(productId) {
+  const rows = await db("product_eligibility")
+    .where({ product_id: productId })
+    .orderBy("id");
+
+  return {
+    classes: [...new Set(rows.map((r) => r.class_name))],
+    gender: rows[0]?.gender || "both",
   };
 }
 
@@ -211,6 +262,7 @@ async function getProduct(req, res, next) {
 
     const images = await db('product_images').where({ product_id: row.id }).orderBy('sort_order');
     const variants = await db('product_variants').where({ product_id: row.id }).orderBy('id');
+    const eligibility = await getProductEligibility(row.id);
     const movements = await db('stock_movements as m')
       .join('product_variants as v', 'v.id', 'm.variant_id')
       .where('v.product_id', row.id)
@@ -230,6 +282,7 @@ async function getProduct(req, res, next) {
       success: true,
       data: {
         product: mapProduct(row, { sku: variants[0]?.sku }),
+        eligibility,
         images: images.map(mapImage),
         variants: variants.map(mapVariant),
         movements: movements.map((m) => ({
@@ -293,6 +346,7 @@ async function createProduct(req, res, next) {
         visible_individually: body.visibleIndividually,
       });
       const productId = Array.isArray(insertResult) ? insertResult[0] : insertResult;
+      await saveProductEligibility(trx, productId, body);
 
       for (const v of variants) {
         const variantInsert = await trx('product_variants').insert({
@@ -378,6 +432,7 @@ async function updateProduct(req, res, next) {
       }
 
       await trx('products').where({ id: product.id }).update(patch);
+      await saveProductEligibility(trx, product.id, body);
 
       if (body.variants) {
         await assertUniqueSkus(trx, body.variants, product.id);

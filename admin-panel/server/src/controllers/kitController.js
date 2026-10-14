@@ -10,10 +10,33 @@ const itemSchema = z.object({
   autoMatchHouseColor: z.boolean().optional().default(false),
 })
 
+function allowedProductGenders(gender) {
+  switch (gender) {
+    case "Boys":
+      return ["boys", "both", "unisex"];
+
+    case "Girls":
+      return ["girls", "both", "unisex"];
+
+    case "Both Boys and Girls":
+    case "Unisex":
+      return ["both", "unisex"];
+
+    default:
+      return [];
+  }
+}
+
 const kitSchema = z.object({
   name: z.string().trim().min(1).max(150),
   className: z.string().trim().min(1).max(50),
-  gender: z.enum(['Boys', 'Girls', 'Unisex']),
+  // gender: z.enum(['Boys', 'Girls', 'Unisex']),
+  gender: z.enum([
+  'Boys',
+  'Girls',
+  'Both Boys and Girls',
+  'Unisex',
+]),
   description: z.string().optional().default(''),
   price: z.coerce.number().finite().min(0),
   isActive: z.boolean().default(true),
@@ -114,24 +137,108 @@ async function getKitById(req, res, next) {
   }
 }
 
-async function validateProducts(trx, items) {
-  const ids = items.map((item) => item.productId)
+async function validateProducts(
+  trx,
+  items,
+  className,
+  gender
+) {
+  const ids = items.map((item) => Number(item.productId));
 
-  if (new Set(ids.map(String)).size !== ids.length) {
-    throw new AppError('Duplicate products in kit', 400)
+  if (new Set(ids).size !== ids.length) {
+    throw new AppError('Duplicate products in kit', 400);
   }
 
-  const products = await trx('products')
-    .whereIn('id', ids)
-    .select('id')
+  const products = await trx('products as p')
+    .join(
+      'product_eligibility as pe',
+      'pe.product_id',
+      'p.id'
+    )
+    .whereIn('p.id', ids)
+    .where('p.status', 'active')
+    .where('p.include_in_kit', true)
+    .whereRaw('LOWER(TRIM(pe.class_name)) = ?', [
+      className.trim().toLowerCase(),
+    ])
+    // .whereIn('pe.gender', [
+    //   gender === 'Girls' ? 'girls' : 'boys',
+    //   'both',
+    //   'unisex',
+    // ])
+    .whereIn("pe.gender", allowedProductGenders(gender))
+    .distinct('p.id');
 
   if (products.length !== ids.length) {
     throw new AppError(
-      'One or more products do not exist',
+      'Some products are not eligible for the selected class and gender',
       400
-    )
+    );
   }
 }
+
+async function calculateKitBasePrice(trx, items) {
+  const ids = items.map((item) => Number(item.productId));
+
+  const products = await trx('products')
+    .whereIn('id', ids)
+    .select('id', 'base_price');
+
+  const variants = await trx('product_variants')
+    .whereIn('product_id', ids)
+    .where('is_active', true)
+    .select('product_id', 'price_override');
+
+  let total = 0;
+
+  for (const item of items) {
+    const product = products.find(
+      (p) => Number(p.id) === Number(item.productId)
+    );
+
+    if (!product) {
+      throw new AppError('Product not found', 400);
+    }
+
+    const productVariants = variants.filter(
+      (v) => Number(v.product_id) === Number(item.productId)
+    );
+
+    const prices = productVariants.map((v) =>
+      v.price_override == null
+        ? Number(product.base_price)
+        : Number(v.price_override)
+    );
+
+    const initialPrice = prices.length
+      ? Math.min(...prices)
+      : Number(product.base_price);
+
+    total += initialPrice * Number(item.quantity);
+  }
+
+  return Math.round(total * 100) / 100;
+}
+
+
+// async function validateProducts(trx, items) {
+//   const ids = items.map((item) => item.productId)
+
+//   if (new Set(ids.map(String)).size !== ids.length) {
+//     throw new AppError('Duplicate products in kit', 400)
+//   }
+
+//   const products = await trx('products')
+//     .whereIn('id', ids)
+//     .select('id')
+
+//   if (products.length !== ids.length) {
+//     throw new AppError(
+//       'One or more products do not exist',
+//       400
+//     )
+//   }
+// }
 
 async function writeItems(trx, kitId, items) {
   await trx('kit_items')
@@ -154,14 +261,26 @@ async function createKit(req, res, next) {
     const body = kitSchema.parse(req.body)
 
     const id = await db.transaction(async (trx) => {
-      await validateProducts(trx, body.items)
+      // await validateProducts(trx, body.items)
+      await validateProducts(
+  trx,
+  body.items,
+  body.className,
+  body.gender
+);
+
+const calculatedPrice = await calculateKitBasePrice(
+  trx,
+  body.items
+);
 
       const [kitId] = await trx('kits').insert({
         name: body.name,
         class_name: body.className,
         gender: body.gender,
         description: body.description,
-        price: body.price,
+        // price: body.price,
+        price: calculatedPrice,
         is_active: body.isActive,
       })
 
@@ -193,7 +312,18 @@ async function updateKit(req, res, next) {
         throw new AppError('Kit not found', 404)
       }
 
-      await validateProducts(trx, body.items)
+      // await validateProducts(trx, body.items)
+      await validateProducts(
+  trx,
+  body.items,
+  body.className,
+  body.gender
+);
+
+const calculatedPrice = await calculateKitBasePrice(
+  trx,
+  body.items
+);
 
       await trx('kits')
         .where({ id })
@@ -202,7 +332,8 @@ async function updateKit(req, res, next) {
           class_name: body.className,
           gender: body.gender,
           description: body.description,
-          price: body.price,
+          // price: body.price,
+          price: calculatedPrice,
           is_active: body.isActive,
           updated_at: trx.fn.now(),
         })
@@ -272,25 +403,107 @@ async function deleteKit(req, res, next) {
 
 async function listKitProducts(req, res, next) {
   try {
-    const products = await db('products')
-      .select('id', 'name', 'status', 'base_price')
-      .orderBy('name')
+    const className = String(req.query.className || '').trim();
+    const gender = String(req.query.gender || '').trim();
+
+    if (!className || !gender) {
+      return res.json({
+        success: true,
+        data: { items: [] },
+      });
+    }
+
+    const products = await db('products as p')
+      .join(
+        'product_eligibility as pe',
+        'pe.product_id',
+        'p.id'
+      )
+      .where('p.status', 'active')
+      .where('p.include_in_kit', true)
+      .whereRaw('LOWER(TRIM(pe.class_name)) = ?', [
+        className.toLowerCase(),
+      ])
+      .whereIn(
+        'pe.gender',
+        allowedProductGenders(gender)
+      )
+      .distinct(
+        'p.id',
+        'p.name',
+        'p.base_price'
+      )
+      .orderBy('p.name');
+
+    const ids = products.map((p) => p.id);
+
+    const variants = ids.length
+      ? await db('product_variants')
+          .whereIn('product_id', ids)
+          .where('is_active', true)
+          .select(
+            'product_id',
+            'option1_value',
+            'price_override'
+          )
+      : [];
+
+    const items = products.map((product) => {
+      const productVariants = variants.filter(
+        (v) => Number(v.product_id) === Number(product.id)
+      );
+
+      const prices = productVariants.map((v) =>
+        v.price_override == null
+          ? Number(product.base_price)
+          : Number(v.price_override)
+      );
+
+      return {
+        id: product.id,
+        name: product.name,
+        status: 'active',
+        price: prices.length
+          ? Math.min(...prices)
+          : Number(product.base_price),
+        variants: productVariants.map((v) => ({
+          size: v.option1_value,
+          price: v.price_override == null
+            ? Number(product.base_price)
+            : Number(v.price_override),
+        })),
+      };
+    });
 
     res.json({
       success: true,
-      data: {
-        items: products.map((product) => ({
-          id: product.id,
-          name: product.name,
-          status: product.status,
-          price: Number(product.base_price),
-        })),
-      },
-    })
+      data: { items },
+    });
   } catch (error) {
-    next(error)
+    next(error);
   }
 }
+// async function listKitProducts(req, res, next) {
+//   try {
+//     const products = await db('products')
+//       .select('id', 'name', 'status', 'base_price')
+//       .orderBy('name')
+
+//     res.json({
+//       success: true,
+//       data: {
+//         items: products.map((product) => ({
+//           id: product.id,
+//           name: product.name,
+//           status: product.status,
+//           price: Number(product.base_price),
+//         })),
+//       },
+//     })
+//   } catch (error) {
+//     next(error)
+//   }
+// }
 
 async function uploadKitImage(req, res, next) {
   try {
@@ -409,7 +622,13 @@ async function saveKit(req, res, next) {
     }
 
     await db.transaction(async (trx) => {
-      await validateProducts(trx, body.items)
+      // await validateProducts(trx, body.items)
+      await validateProducts(
+  trx,
+  body.items,
+  kit.class_name,
+  kit.gender
+)
 
       await trx('kits')
         .where({ id: kit.id })
@@ -473,7 +692,12 @@ async function matchingKits(req, res, next) {
         is_active: true,
         class_name: className,
       })
-      .whereIn('gender', [gender, 'Unisex'])
+      // .whereIn('gender', [gender, 'Unisex'])
+      .whereIn("gender", [
+  gender,
+  "Both Boys and Girls",
+  "Unisex",
+])
       .orderBy('id', 'desc')
 
     res.json({
@@ -502,146 +726,3 @@ module.exports = {
   matchingKits,
 }
 
-
-
-// const { z } = require('zod');
-// const db = require('../config/db');
-// const AppError = require('../utils/AppError');
-// const storage = require('../services/storage');
-
-// const kitSchema = z.object({
-//   name: z.string().min(1).max(150),
-//   description: z.string().optional().default(''),
-//   price: z.coerce.number().nonnegative(),
-//   isActive: z.boolean().optional().default(true),
-//   items: z
-//     .array(
-//       z.object({
-//         productId: z.coerce.number().int().positive(),
-//         quantity: z.coerce.number().int().positive().default(1),
-//         studentPicksSize: z.boolean().default(true),
-//         autoMatchHouseColor: z.boolean().default(false),
-//       })
-//     )
-//     .default([]),
-// });
-
-// async function getKitStockWarnings(kitId) {
-//   const items = await db('kit_items as ki')
-//     .join('products as p', 'p.id', 'ki.product_id')
-//     .where('ki.kit_id', kitId)
-//     .select('ki.*', 'p.name as product_name');
-
-//   const warnings = [];
-//   for (const item of items) {
-//     const variants = await db('product_variants')
-//       .where({ product_id: item.product_id, is_active: true });
-//     const zero = variants.filter((v) => v.stock_qty === 0);
-//     if (zero.length) {
-//       warnings.push({
-//         productId: item.product_id,
-//         productName: item.product_name,
-//         zeroStockSkus: zero.map((v) => v.sku),
-//       });
-//     }
-//   }
-//   return warnings;
-// }
-
-// async function getActiveKit(req, res, next) {
-//   try {
-//     let kit = await db('kits').where({ is_active: true }).orderBy('id', 'desc').first();
-//     if (!kit) kit = await db('kits').orderBy('id', 'desc').first();
-//     if (!kit) {
-//       return res.json({ success: true, data: { kit: null, items: [], warnings: [] } });
-//     }
-//     const items = await db('kit_items as ki')
-//       .join('products as p', 'p.id', 'ki.product_id')
-//       .where('ki.kit_id', kit.id)
-//       .select('ki.*', 'p.name as product_name', 'p.slug as product_slug');
-//     const warnings = await getKitStockWarnings(kit.id);
-//     res.json({
-//       success: true,
-//       data: {
-//         kit: {
-//           id: kit.id,
-//           name: kit.name,
-//           description: kit.description,
-//           imageUrl: kit.image_url,
-//           price: Number(kit.price),
-//           isActive: Boolean(kit.is_active),
-//         },
-//         items: items.map((i) => ({
-//           id: i.id,
-//           productId: i.product_id,
-//           productName: i.product_name,
-//           quantity: i.quantity,
-//           studentPicksSize: Boolean(i.student_picks_size),
-//           autoMatchHouseColor: Boolean(i.auto_match_house_color),
-//         })),
-//         warnings,
-//       },
-//     });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-
-// async function saveKit(req, res, next) {
-//   try {
-//     const body = kitSchema.parse(req.body);
-//     const id = await db.transaction(async (trx) => {
-//       let kit = await trx('kits').orderBy('id', 'desc').first();
-//       if (!kit) {
-//         const [kitId] = await trx('kits').insert({
-//           name: body.name,
-//           description: body.description,
-//           price: body.price,
-//           is_active: body.isActive,
-//         });
-//         kit = { id: kitId };
-//       } else {
-//         await trx('kits').where({ id: kit.id }).update({
-//           name: body.name,
-//           description: body.description,
-//           price: body.price,
-//           is_active: body.isActive,
-//           updated_at: trx.fn.now(),
-//         });
-//       }
-//       await trx('kit_items').where({ kit_id: kit.id }).del();
-//       for (const item of body.items) {
-//         await trx('kit_items').insert({
-//           kit_id: kit.id,
-//           product_id: item.productId,
-//           quantity: item.quantity,
-//           student_picks_size: item.studentPicksSize,
-//           auto_match_house_color: item.autoMatchHouseColor,
-//         });
-//       }
-//       return kit.id;
-//     });
-//     res.json({ success: true, data: { id } });
-//   } catch (err) {
-//     next(err.name === 'ZodError' ? new AppError('Validation failed', 400, err.issues) : err);
-//   }
-// }
-
-// async function uploadKitImage(req, res, next) {
-//   try {
-//     const kit = await db('kits').orderBy('id', 'desc').first();
-//     if (!kit) throw new AppError('Create kit first', 400);
-//     if (!req.file) throw new AppError('Image required', 400);
-//     const url = await storage.saveUploadedFile(req.file);
-//     await db('kits').where({ id: kit.id }).update({ image_url: url, updated_at: db.fn.now() });
-//     res.json({ success: true, data: { imageUrl: url } });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-
-// module.exports = {
-//   getActiveKit,
-//   saveKit,
-//   uploadKitImage,
-// };

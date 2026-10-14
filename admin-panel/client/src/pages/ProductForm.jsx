@@ -38,6 +38,19 @@ import Tooltip from '@mui/material/Tooltip'
 
 const GST_RATES = [0, 5, 12, 18, 28]
 
+const CLASS_OPTIONS = [
+  "Nursery", "LKG", "UKG",
+  "1", "2", "3", "4", "5",
+  "6", "7", "8", "9", "10",
+];
+
+const GENDER_OPTIONS = [
+  { value: "boys", label: "Boys" },
+  { value: "girls", label: "Girls" },
+  { value: "both", label: "Both Boys and Girls" },
+  { value: "unisex", label: "Unisex" },
+];
+
 function slugify(s) {
   return String(s || '')
     .toLowerCase()
@@ -77,9 +90,15 @@ export default function ProductForm() {
     taxPercent: 5,
     visibleIndividually: true,
     includeInKit: true,
+    classes: [],
+gender: "both",
     variants: [],
   })
   const [saving, setSaving] = useState(false)
+
+  const [selectedClass, setSelectedClass] = useState("");
+const [customClass, setCustomClass] = useState("");
+
   const [loading, setLoading] = useState(!isNew)
 
   // useRegisterPageHeader(
@@ -141,6 +160,8 @@ useRegisterPageHeader(
           taxPercent: Number(p.gstRate ?? p.taxPercent ?? 5),
           visibleIndividually: p.visibleIndividually,
           includeInKit: p.includeInKit !== false,
+          classes: res.data.eligibility?.classes || [],
+gender: res.data.eligibility?.gender || "both",
           variants,
         })
         lastBasePriceRef.current = Number(p.basePrice)
@@ -254,6 +275,10 @@ useRegisterPageHeader(
       showToast('Please select a category', 'error')
       return
     }
+    if (!form.classes.length) {
+  showToast("Please select at least one class", "error");
+  return;
+}
     const mrp = form.compareAtPrice === '' ? null : Number(form.compareAtPrice)
     const sale = Number(form.basePrice)
     if (mrp != null && mrp > 0 && sale > mrp) {
@@ -441,6 +466,110 @@ useRegisterPageHeader(
                 onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value) }))}
               />
             </Grid>
+
+            {/* CLASS + GENDER - SIDE BY SIDE */}
+<Grid size={{ xs: 12, md: 6 }}>
+  <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+    <TextField
+      select
+      fullWidth
+      label="Applicable Class"
+      value={selectedClass}
+      onChange={(e) => {
+        const value = e.target.value;
+        setSelectedClass(value);
+
+        if (value !== "other" && value) {
+          setForm((f) => ({
+            ...f,
+            classes: [...new Set([...f.classes, value])],
+          }));
+          setSelectedClass("");
+        }
+      }}
+    >
+      <MenuItem value="">Select Class</MenuItem>
+
+      {CLASS_OPTIONS.map((value) => (
+        <MenuItem key={value} value={value}>
+          {["Nursery", "LKG", "UKG"].includes(value)
+            ? value
+            : `Class ${value}`}
+        </MenuItem>
+      ))}
+
+      <MenuItem value="other">Other (Enter Manually)</MenuItem>
+    </TextField>
+
+    {selectedClass === "other" && (
+      <Box sx={{ display: "flex", gap: 1 }}>
+        <TextField
+          fullWidth
+          label="Enter Other Class"
+          value={customClass}
+          onChange={(e) => setCustomClass(e.target.value)}
+        />
+
+        <Button
+          variant="contained"
+          onClick={() => {
+            const value = customClass.trim();
+            if (!value) return;
+
+            setForm((f) => ({
+              ...f,
+              classes: [...new Set([...f.classes, value])],
+            }));
+
+            setCustomClass("");
+            setSelectedClass("");
+          }}
+        >
+          Add
+        </Button>
+      </Box>
+    )}
+
+    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+      {form.classes.map((value) => (
+        <Button
+          key={value}
+          size="small"
+          variant="outlined"
+          onClick={() =>
+            setForm((f) => ({
+              ...f,
+              classes: f.classes.filter((c) => c !== value),
+            }))
+          }
+        >
+          {value} ×
+        </Button>
+      ))}
+    </Box>
+  </Box>
+</Grid>
+
+<Grid size={{ xs: 12, md: 6 }}>
+  <TextField
+    select
+    fullWidth
+    label="Applicable Gender"
+    value={form.gender}
+    onChange={(e) =>
+      setForm((f) => ({
+        ...f,
+        gender: e.target.value,
+      }))
+    }
+  >
+    {GENDER_OPTIONS.map((option) => (
+      <MenuItem key={option.value} value={option.value}>
+        {option.label}
+      </MenuItem>
+    ))}
+  </TextField>
+</Grid>
           </Grid>
         </FormSectionCard>
 

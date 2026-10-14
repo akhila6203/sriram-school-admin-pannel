@@ -6,8 +6,10 @@ export const listKits = async () =>
 export const getKitById = async (id) =>
   (await api.get(`/admin/kit/kits/${id}`)).data
 
-export const listKitProducts = async () =>
-  (await api.get('/admin/kit/products')).data
+// export const listKitProducts = async () =>
+//   (await api.get('/admin/kit/products')).data
+export const listKitProducts = async (params = {}) =>
+  (await api.get('/admin/kit/products', { params })).data
 
 export const createKit = async (body) =>
   (await api.post('/admin/kit/kits', body)).data

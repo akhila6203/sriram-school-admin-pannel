@@ -88,6 +88,8 @@ async function listOrders(req, res, next) {
       )
       .groupBy('o.id', 's.admission_number', 's.student_name', 's.house_color', 's.phone');
 
+      query = query.where("o.payment_status", "paid");
+      
     if (q.search) {
       const s = `%${q.search}%`;
       query = query.andWhere((b) =>

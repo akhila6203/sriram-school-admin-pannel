@@ -33,13 +33,25 @@ function postJson(urlStr, payload) {
         res.on('data', (c) => {
           body += c;
         });
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(body));
-          } catch {
-            resolve({ raw: body });
-          }
-        });
+        res.on("end", () => {
+  try {
+    const parsed = JSON.parse(body);
+
+    if (res.statusCode >= 500) {
+      console.error("PAYTM HTTP ERROR:", {
+        httpStatus: res.statusCode,
+      });
+    }
+
+    resolve(parsed);
+  } catch {
+    reject(
+      new Error(
+        `Invalid Paytm response (HTTP ${res.statusCode})`
+      )
+    );
+  }
+});
       }
     );
     req.on('error', reject);
@@ -50,19 +62,91 @@ function postJson(urlStr, payload) {
 
 async function credentials() {
   const s = await settingsService.getSettings();
-  if (!s.paytm_mid || !s.paytm_merchant_key) {
-    throw new AppError('Paytm is not configured', 400);
+
+  const paytmEnabled =
+    s.paytm_enabled === true ||
+    s.paytm_enabled === 1 ||
+    s.paytm_enabled === "true" ||
+    s.paytm_enabled === "1";
+
+  if (!paytmEnabled) {
+    throw new AppError(
+      "Paytm is disabled in Admin Settings. Enable Paytm and save.",
+      503
+    );
   }
+
+  let methods = s.payment_methods;
+
+  if (typeof methods === "string") {
+    try {
+      methods = JSON.parse(methods);
+    } catch {
+      throw new AppError(
+        "Invalid payment methods configuration",
+        500
+      );
+    }
+  }
+
+  if (!Array.isArray(methods)) {
+    throw new AppError(
+      "Payment methods are not configured correctly",
+      503
+    );
+  }
+
+  const paytmMethod = methods.find(
+    (method) =>
+      String(method.id).toLowerCase() === "paytm"
+  );
+
+  const methodEnabled =
+    paytmMethod?.enabled === true ||
+    paytmMethod?.enabled === 1 ||
+    paytmMethod?.enabled === "true" ||
+    paytmMethod?.enabled === "1";
+
+  if (!methodEnabled) {
+    throw new AppError(
+      "Paytm payment method is disabled. Enable it under Admin Settings > Payment Methods.",
+      503
+    );
+  }
+
+  if (!s.paytm_mid || !s.paytm_merchant_key) {
+    throw new AppError(
+      "Paytm Merchant ID or Merchant Key is missing",
+      400
+    );
+  }
+
   return {
     mid: s.paytm_mid,
     merchantKey: s.paytm_merchant_key,
-    websiteName: s.paytm_website || (s.paytm_environment === 'production' ? 'DEFAULT' : 'WEBSTAGING'),
-    industryType: s.paytm_industry_type || 'Retail',
-    channelId: s.paytm_channel_id || 'WEB',
-    environment: s.paytm_environment || 'staging',
+
+    websiteName:
+      s.paytm_website ||
+      (s.paytm_environment === "production"
+        ? "DEFAULT"
+        : "WEBSTAGING"),
+
+    industryType:
+      s.paytm_industry_type || "Retail",
+
+    channelId:
+      s.paytm_channel_id || "WEB",
+
+    environment:
+      s.paytm_environment || "staging",
+
     callbackUrl:
-      `${String(env.apiBaseUrl).replace(/\/$/, '')}/api/storefront/payments/paytm/callback`,
-    enabled: Boolean(s.paytm_enabled),
+  `${String(env.apiBaseUrl)
+    .replace(/\/$/, "")
+    .replace(/\/api$/, "")}` +
+  "/api/storefront/payments/paytm/callback",
+
+    enabled: true,
   };
 }
 
@@ -86,8 +170,19 @@ async function initiateTransaction(order) {
   const signature = await PaytmChecksum.generateSignature(JSON.stringify(body), c.merchantKey);
   const payload = { body, head: { signature } };
   const url = `${baseUrl(c.environment)}/theia/api/v1/initiateTransaction?mid=${encodeURIComponent(c.mid)}&orderId=${encodeURIComponent(paytmOrderId)}`;
+  // const json = await postJson(url, payload);
+  // const txnToken = json?.body?.txnToken;
   const json = await postJson(url, payload);
-  const txnToken = json?.body?.txnToken;
+
+console.log("PAYTM INITIATE RESULT:", {
+  environment: c.environment,
+  resultStatus: json?.body?.resultInfo?.resultStatus,
+  resultCode: json?.body?.resultInfo?.resultCode,
+  resultMsg: json?.body?.resultInfo?.resultMsg,
+  hasTxnToken: Boolean(json?.body?.txnToken),
+});
+
+const txnToken = json?.body?.txnToken;
   if (!txnToken) {
     const msg = json?.body?.resultInfo?.resultMsg || 'Paytm initiate failed';
     throw new AppError(msg, 400);
@@ -164,10 +259,21 @@ async function testConnection() {
   const url = `${baseUrl(c.environment)}/theia/api/v1/initiateTransaction?mid=${encodeURIComponent(c.mid)}&orderId=${encodeURIComponent(body.orderId)}`;
   const json = await postJson(url, { body, head: { signature } });
   return {
-    ok: Boolean(json?.body?.txnToken) || json?.body?.resultInfo?.resultStatus === 'S',
-    resultMsg: json?.body?.resultInfo?.resultMsg || json?.body?.resultInfo?.resultStatus || 'No token',
-    resultStatus: json?.body?.resultInfo?.resultStatus,
-  };
+  ok:
+    Boolean(json?.body?.txnToken) ||
+    json?.body?.resultInfo?.resultStatus === "S",
+
+  resultCode:
+    json?.body?.resultInfo?.resultCode || null,
+
+  resultMsg:
+    json?.body?.resultInfo?.resultMsg ||
+    json?.body?.resultInfo?.resultStatus ||
+    "No token",
+
+  resultStatus:
+    json?.body?.resultInfo?.resultStatus || null,
+};
 }
 
 module.exports = {

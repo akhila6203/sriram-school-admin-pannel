@@ -1,7 +1,13 @@
 const { z } = require('zod');
 const db = require('../config/db');
 const AppError = require('../utils/AppError');
-const { resolveCatalogMode, loadSettingsMap } = require('../services/catalogMode');
+
+const jwt = require("jsonwebtoken");
+const env = require("../config/env");
+const studentAuth = require("../middleware/studentAuth");
+
+const { loadSettingsMap } =
+  require("../services/catalogMode");
 const stockService = require('../services/stock');
 const { nextOrderNumber } = require('../utils/orderNumber');
 const { applyOrderGst, isIntraState, splitLine, round2 } = require('../utils/gst');
@@ -14,10 +20,19 @@ async function login(req, res, next) {
     });
     const body = schema.parse(req.body);
     const settings = await loadSettingsMap(db);
-    const student = await db('students')
-      .where({ admission_number: body.admissionNumber.trim(), is_active: true })
-      .first();
-    if (!student) throw new AppError('Student not found or inactive', 401);
+    // const student = await db('students')
+    //   .where({ admission_number: body.admissionNumber.trim(), is_active: true })
+    //   .first();
+   const student = await db("students")
+  .where({
+    admission_number: body.admissionNumber.trim(),
+    is_active: true,
+  })
+  .first();
+
+if (!student) {
+  throw new AppError("Invalid admission number", 401);
+}
 
     const check = settings.extra_login_check || 'none';
     if (check === 'zipcode') {
@@ -36,19 +51,81 @@ async function login(req, res, next) {
     await db('students').where({ id: student.id }).update(patch);
 
     const refreshed = await db('students').where({ id: student.id }).first();
-    const mode = resolveCatalogMode(refreshed, settings);
+  const matchingKit = await db("kits")
+  .where("is_active", true)
+  .whereRaw(
+    "LOWER(TRIM(class_name)) = LOWER(TRIM(?))",
+    [String(refreshed.class_name)]
+  )
+  .whereRaw(
+    `LOWER(TRIM(gender)) IN (?, ?, ?, ?)`,
+    [
+      ["male", "boys", "boy"].includes(
+        String(refreshed.gender).trim().toLowerCase()
+      )
+        ? "boys"
+        : "girls",
+      ["male", "boys", "boy"].includes(
+        String(refreshed.gender).trim().toLowerCase()
+      )
+        ? "male"
+        : "female",
+      "both boys and girls",
+      "unisex",
+    ]
+  )
+  .orderBy("id", "desc")
+  .first();
+
+// const mode = matchingKit ? "kit" : "individual";
+const mode = matchingKit ? "kit" : "individual";
+
+// Create backend student session
+const token = jwt.sign(
+  { type: "student" },
+  env.jwtSecret,
+  {
+    subject: String(refreshed.id),
+    expiresIn: env.jwtExpiresIn,
+  }
+);
+
+// HTTP-only cookie: no localStorage required
+res.cookie(studentAuth.COOKIE_NAME, token, {
+  httpOnly: true,
+  secure: env.cookieSecure,
+  sameSite: "lax",
+  path: "/",
+  maxAge: 8 * 60 * 60 * 1000,
+});
+
 
     res.json({
       success: true,
       data: {
-        student: {
-          id: refreshed.id,
-          admissionNumber: refreshed.admission_number,
-          studentName: refreshed.student_name,
-          houseColor: refreshed.house_color,
-          kitStatus: refreshed.kit_status,
-          catalogMode: mode,
-        },
+student: {
+  id: refreshed.id,
+  admissionNumber: refreshed.admission_number,
+  studentName: refreshed.student_name,
+  parentName: refreshed.parent_name,
+
+  className: refreshed.class_name,
+  age: refreshed.age,
+  gender: refreshed.gender,
+  houseColor: refreshed.house_color,
+
+  phone: refreshed.phone || "",
+  email: refreshed.email || "",
+
+  address1: refreshed.address1 || "",
+  address2: refreshed.address2 || "",
+  city: refreshed.city || "",
+  state: refreshed.state || "",
+  zipcode: refreshed.zipcode || "",
+
+  kitStatus: refreshed.kit_status,
+  catalogMode: mode,
+},
       },
     });
   } catch (err) {
@@ -58,103 +135,249 @@ async function login(req, res, next) {
 
 async function getCatalog(req, res, next) {
   try {
-    const admissionNumber = String(req.query.admissionNumber || '').trim();
-    if (!admissionNumber) throw new AppError('admissionNumber required', 400);
+    const admissionNumber =
+  req.student.admission_number;
+
+    if (!admissionNumber) {
+      throw new AppError(
+        "Admission number required",
+        400
+      );
+    }
+
     const settings = await loadSettingsMap(db);
-    const student = await db('students')
-      .where({ admission_number: admissionNumber, is_active: true })
-      .first();
-    if (!student) throw new AppError('Student not found', 404);
-    const mode = resolveCatalogMode(student, settings);
 
-    if (mode === 'kit') {
-      const kit = await db('kits').where({ is_active: true }).orderBy('id', 'desc').first();
-      if (!kit) {
-        return res.json({ success: true, data: { mode, kit: null, products: [] } });
-      }
-      const items = await db('kit_items as ki')
-        .join('products as p', 'p.id', 'ki.product_id')
-        .where('ki.kit_id', kit.id)
-        .select('ki.*', 'p.name', 'p.slug', 'p.description');
-      const enriched = [];
-      for (const item of items) {
-        const variants = await db('product_variants')
-          .where({ product_id: item.product_id, is_active: true })
-          .andWhere('stock_qty', '>', 0);
-        enriched.push({
-          productId: item.product_id,
-          name: item.name,
-          quantity: item.quantity,
-          studentPicksSize: Boolean(item.student_picks_size),
-          autoMatchHouseColor: Boolean(item.auto_match_house_color),
-          variants: variants.map((v) => ({
-            id: v.id,
-            sku: v.sku,
-            option1Name: v.option1_name,
-            option1Value: v.option1_value,
-            option2Name: v.option2_name,
-            option2Value: v.option2_value,
-            stockQty: v.stock_qty,
-          })),
-        });
-      }
-      return res.json({
-        success: true,
-        data: {
-          mode,
-          kit: {
-            id: kit.id,
-            name: kit.name,
-            description: kit.description,
-            price: Number(kit.price),
-            imageUrl: kit.image_url,
-            items: enriched,
-          },
-          products: [],
-        },
-      });
-    }
-
-    const products = await db('products as p')
-      .where({ status: 'active', visible_individually: true })
-      .whereExists(function existsVariant() {
-        this.select(db.raw('1'))
-          .from('product_variants as v')
-          .whereRaw('v.product_id = p.id')
-          .andWhere('v.is_active', true)
-          .andWhere('v.stock_qty', '>', 0);
+    const student = await db("students")
+      .where({
+        admission_number: admissionNumber,
+        is_active: true,
       })
-      .select('p.*');
+      .first();
 
-    const result = [];
-    for (const p of products) {
-      const variants = await db('product_variants')
-        .where({ product_id: p.id, is_active: true })
-        .andWhere('stock_qty', '>', 0);
-      const images = await db('product_images').where({ product_id: p.id }).orderBy('sort_order');
-      result.push({
-        id: p.id,
-        name: p.name,
-        slug: p.slug,
-        description: p.description,
-        basePrice: Number(p.base_price),
-        images: images.map((i) => i.url),
-        variants: variants.map((v) => ({
-          id: v.id,
-          sku: v.sku,
-          option1Name: v.option1_name,
-          option1Value: v.option1_value,
-          option2Name: v.option2_name,
-          option2Value: v.option2_value,
-          priceOverride: v.price_override != null ? Number(v.price_override) : null,
-          stockQty: v.stock_qty,
-        })),
-      });
+    if (!student) {
+      throw new AppError(
+        "Student not found or inactive",
+        404
+      );
     }
 
-    return res.json({ success: true, data: { mode, kit: null, products: result } });
+    if (!student.class_name || !student.gender) {
+      throw new AppError(
+        "Student class and gender are not configured",
+        400
+      );
+    }
+
+    const normalizedGender = String(student.gender || "")
+  .trim()
+  .toLowerCase();
+
+const isBoy = ["male", "boy", "boys"].includes(normalizedGender);
+const isGirl = ["female", "girl", "girls"].includes(normalizedGender);
+
+if (!isBoy && !isGirl) {
+  throw new AppError("Invalid student gender", 400);
+}
+
+const allowedKitGenders = isBoy
+  ? ["Boys", "Male", "Both Boys and Girls", "Unisex"]
+  : ["Girls", "Female", "Both Boys and Girls", "Unisex"];
+
+const allowedProductGenders = isBoy
+  ? ["boys", "male", "both", "unisex"]
+  : ["girls", "female", "both", "unisex"];
+
+
+
+    const loadVariants = async (productId) => {
+      const rows = await db("product_variants")
+        .where({
+          product_id: productId,
+          is_active: true,
+        })
+        .whereRaw(
+          "stock_qty > COALESCE(reserved_qty, 0)"
+        )
+        .orderBy("id");
+
+      return rows.map((v) => ({
+        id: v.id,
+        sku: v.sku,
+        option1Name: v.option1_name,
+        option1Value: v.option1_value,
+        option2Name: v.option2_name,
+        option2Value: v.option2_value,
+        priceOverride:
+          v.price_override == null
+            ? null
+            : Number(v.price_override),
+        stockQty:
+          Number(v.stock_qty) -
+          Number(v.reserved_qty || 0),
+      }));
+    };
+
+    // First: matching active kit
+
+      const kit = await db("kits")
+  .where("is_active", true)
+  .whereRaw(
+    "LOWER(TRIM(class_name)) = LOWER(TRIM(?))",
+    [String(student.class_name)]
+  )
+  .whereIn("gender", allowedKitGenders)
+  .orderBy("id", "desc")
+  .first();
+
+      if (kit) {
+        const items = await db("kit_items as ki")
+          .join(
+            "products as p",
+            "p.id",
+            "ki.product_id"
+          )
+          .where("ki.kit_id", kit.id)
+          .where("p.status", "active")
+          .select(
+            "ki.*",
+            "p.name",
+            "p.slug",
+            "p.description",
+            "p.base_price"
+          );
+
+        const enriched = await Promise.all(
+          items.map(async (item) => {
+            const variants = await loadVariants(
+              item.product_id
+            );
+
+            const images = await db("product_images")
+              .where({
+                product_id: item.product_id,
+              })
+              .orderBy("sort_order");
+
+            return {
+              productId: item.product_id,
+              name: item.name,
+              slug: item.slug,
+              description: item.description,
+              quantity: Number(item.quantity),
+              price: Number(item.base_price),
+              imageUrl: images[0]?.url || "",
+              images: images.map((i) => i.url),
+              studentPicksSize: Boolean(
+                item.student_picks_size
+              ),
+              autoMatchHouseColor: Boolean(
+                item.auto_match_house_color
+              ),
+              variants,
+            };
+          })
+        );
+
+        // Do not offer an incomplete or unavailable kit.
+        const totalKitItems = await db("kit_items")
+  .where({ kit_id: kit.id })
+  .count({ total: "*" })
+  .first();
+
+const kitAvailable =
+  enriched.length === Number(totalKitItems.total) &&
+  enriched.length > 0 &&
+  enriched.every((item) =>
+    item.variants.some(
+      (variant) =>
+        Number(variant.stockQty) >=
+        Number(item.quantity)
+    )
+  );
+
+          return res.json({
+            success: true,
+            data: {
+              mode: "kit",
+              kit: {
+  id: kit.id,
+  name: kit.name,
+  description: kit.description,
+  price: Number(kit.price),
+  imageUrl: kit.image_url,
+  className: kit.class_name,
+  gender: kit.gender,
+  items: enriched,
+  available: kitAvailable,
+},
+              products: [],
+            },
+          });
+        
+      }
+    
+
+    // No matching available kit OR kit already purchased:
+    // show individual products.
+    const products = await db("products as p")
+      .where({
+        "p.status": "active",
+        "p.visible_individually": true,
+      })
+      .whereExists(function () {
+        this.select(db.raw("1"))
+          .from("product_eligibility as pe")
+          .whereRaw("pe.product_id = p.id")
+          .whereRaw(
+            "LOWER(TRIM(pe.class_name)) = LOWER(?)",
+            [student.class_name.trim()]
+          )
+          // .whereIn("pe.gender", allowedGenders);
+          .whereIn("pe.gender", allowedProductGenders);
+      })
+      .whereExists(function () {
+        this.select(db.raw("1"))
+          .from("product_variants as v")
+          .whereRaw("v.product_id = p.id")
+          .where("v.is_active", true)
+          .whereRaw(
+            "v.stock_qty > COALESCE(v.reserved_qty, 0)"
+          );
+      })
+      .select("p.*")
+      .orderBy("p.id", "desc");
+
+    const result = await Promise.all(
+      products.map(async (product) => {
+        const [variants, images] = await Promise.all([
+          loadVariants(product.id),
+          db("product_images")
+            .where({ product_id: product.id })
+            .orderBy("sort_order"),
+        ]);
+
+        return {
+          id: product.id,
+          name: product.name,
+          slug: product.slug,
+          description: product.description,
+          basePrice: Number(product.base_price),
+          images: images.map((i) => i.url),
+          variants,
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        mode: "individual",
+        kit: null,
+        products: result,
+      },
+    });
   } catch (err) {
-    return next(err);
+    next(err);
   }
 }
 
@@ -172,7 +395,7 @@ async function placeOrder(req, res, next) {
           })
         )
         .min(1),
-      paymentMethod: z.string().optional().default('cod'),
+      paymentMethod: z.literal("paytm").default("paytm"),
       notes: z.string().optional(),
     });
     const body = schema.parse(req.body);
@@ -182,21 +405,112 @@ async function placeOrder(req, res, next) {
       .first();
     if (!student) throw new AppError('Student not found', 404);
 
-    const mode = resolveCatalogMode(student, settings);
-    if (body.type === 'individual' && mode === 'kit') {
-      throw new AppError('Student is in kit mode; cannot order individual products', 403);
-    }
-    if (body.type === 'kit' && mode === 'individual') {
-      const allowReorder = settings.allow_kit_reorder === true;
-      if (!allowReorder) {
-        throw new AppError('Kit already ordered; re-order not allowed', 403);
-      }
-    }
+    if (!student.class_name || !student.gender) {
+  throw new AppError(
+    "Student class and gender are missing",
+    400
+  );
+}
+
+const normalizedGender = String(student.gender || "")
+  .trim()
+  .toLowerCase();
+
+const isBoy = ["boys", "boy", "male"].includes(normalizedGender);
+const isGirl = ["girls", "girl", "female"].includes(normalizedGender);
+
+if (!isBoy && !isGirl) {
+  throw new AppError("Invalid student gender", 400);
+}
+
+const allowedKitGenders = isBoy
+  ? ["Boys", "Male", "Both Boys and Girls", "Unisex"]
+  : ["Girls", "Female", "Both Boys and Girls", "Unisex"];
+
+const allowedProductGenders = isBoy
+  ? ["boys", "male", "both", "unisex"]
+  : ["girls", "female", "both", "unisex"];
+
+const matchingKit = await db("kits")
+  .where({
+    is_active: true,
+    class_name: student.class_name,
+  })
+  .whereIn("gender", allowedKitGenders)
+  .orderBy("id", "desc")
+  .first();
+    // if (body.type === 'individual' && mode === 'kit') {
+    //   throw new AppError('Student is in kit mode; cannot order individual products', 403);
+    // }
+// Kit ON -> individual products ordering not allowed
+if (body.type === "individual" && matchingKit) {
+  throw new AppError(
+    "Individual products are available only when the matching kit is inactive",
+    403
+  );
+}
+
+// Kit OFF -> kit ordering not allowed
+if (body.type === "kit" && !matchingKit) {
+  throw new AppError(
+    "No matching active kit available",
+    400
+  );
+}
+
+// Kit remains visible after purchase.
+// Reorder permission is separate from visibility.
+if (
+  body.type === "kit" &&
+  student.kit_status === "ordered" &&
+  settings.allow_kit_reorder !== true
+) {
+  throw new AppError(
+    "Kit already purchased",
+    403
+  );
+}
 
     const shipping = Number(settings.shipping_fee || 0);
     const prefix = settings.order_number_prefix || 'SS';
 
+
     const orderId = await db.transaction(async (trx) => {
+      if (body.type === "kit") {
+  const requiredItems = await trx("kit_items")
+    .where({ kit_id: matchingKit.id });
+
+  const expected = new Map(
+    requiredItems.map((item) => [
+      String(item.product_id),
+      Number(item.quantity),
+    ])
+  );
+
+  const actual = new Map();
+
+  for (const item of body.items) {
+    const key = String(item.productId);
+    actual.set(
+      key,
+      (actual.get(key) || 0) +
+        Number(item.quantity)
+    );
+  }
+
+  if (
+    !expected.size ||
+    expected.size !== actual.size ||
+    [...expected].some(
+      ([id, qty]) => actual.get(id) !== qty
+    )
+  ) {
+    throw new AppError(
+      "Kit items do not match the selected school kit",
+      400
+    );
+  }
+}
       let subtotal = 0;
       const lineRows = [];
 
@@ -211,6 +525,48 @@ async function placeOrder(req, res, next) {
         }
         const product = await trx('products').where({ id: item.productId }).first();
         if (!product) throw new AppError('Product not found', 400);
+
+        if (Number(variant.product_id) !== Number(product?.id)) {
+  throw new AppError(
+    "Variant does not belong to selected product",
+    400
+  );
+}
+
+if (!product || product.status !== "active") {
+  throw new AppError(
+    "Product unavailable",
+    400
+  );
+}
+
+const eligible = await trx("product_eligibility")
+  .where({
+    product_id: product.id,
+  })
+  .whereRaw(
+    "LOWER(TRIM(class_name)) = LOWER(?)",
+    [student.class_name.trim()]
+  )
+  .whereIn("gender", allowedProductGenders)
+  .first();
+
+if (!eligible) {
+  throw new AppError(
+    "Product not available for this class and gender",
+    403
+  );
+}
+
+if (
+  body.type === "individual" &&
+  !product.visible_individually
+) {
+  throw new AppError(
+    "Product is not available individually",
+    403
+  );
+}
 
         const unit =
           variant.price_override != null
@@ -257,7 +613,15 @@ async function placeOrder(req, res, next) {
       let sgstTotal = 0;
       let igstTotal = 0;
       if (body.type === 'kit') {
-        const kit = await trx('kits').where({ is_active: true }).orderBy('id', 'desc').first();
+        // const kit = await trx('kits').where({ is_active: true }).orderBy('id', 'desc').first();
+        const kit = await trx("kits")
+  .where({
+    id: matchingKit.id,
+    is_active: true,
+    class_name: student.class_name,
+  })
+  .whereIn("gender", allowedKitGenders)
+  .first();
         if (!kit) throw new AppError('No active kit', 400);
         const kitSplit = splitLine({
           amount: Number(kit.price),
@@ -318,14 +682,15 @@ async function placeOrder(req, res, next) {
         phone: student.phone,
       };
 
-      const isPaytm = body.paymentMethod === 'paytm';
+      
       const [oid] = await trx('orders').insert({
         order_number: orderNumber,
         student_id: student.id,
         type: body.type,
-        status: 'placed',
-        payment_status: 'pending',
-        payment_method: body.paymentMethod,
+        status: 'pending',
+payment_status: 'pending',
+payment_method: 'paytm',
+
         subtotal,
         tax,
         shipping,
@@ -344,17 +709,7 @@ async function placeOrder(req, res, next) {
         await trx('order_items').insert({ ...rest, order_id: oid });
       }
 
-      if (!isPaytm) {
-        for (const line of lineRows) {
-          await stockService.finalizeReserved(trx, {
-            variantId: line.variant_id,
-            quantity: line.quantity,
-            orderId: oid,
-            note: 'COD — finalize stock',
-          });
-        }
-        await trx('orders').where({ id: oid }).update({ stock_state: 'finalized' });
-      }
+      
       await trx('order_status_history').insert({
         order_id: oid,
         status: 'placed',
@@ -374,12 +729,7 @@ async function placeOrder(req, res, next) {
         .limit(lineRows.length)
         .update({ order_id: oid });
 
-      if (body.type === 'kit') {
-        await trx('students').where({ id: student.id }).update({
-          kit_status: 'ordered',
-          updated_at: trx.fn.now(),
-        });
-      }
+      
 
       return oid;
     });
@@ -403,27 +753,119 @@ async function placeOrder(req, res, next) {
 
 async function listOrders(req, res, next) {
   try {
-    const admissionNumber = String(req.query.admissionNumber || '').trim();
-    if (!admissionNumber) throw new AppError('admissionNumber required', 400);
-    const student = await db('students').where({ admission_number: admissionNumber }).first();
-    if (!student) throw new AppError('Student not found', 404);
-    const orders = await db('orders').where({ student_id: student.id }).orderBy('created_at', 'desc');
+    const orders = await db("orders")
+      .where({
+        student_id: req.student.id,
+        payment_status: "paid",
+      })
+      .orderBy("created_at", "desc");
+
+    const orderIds = orders.map((order) => order.id);
+
+    const orderItems = orderIds.length
+      ? await db("order_items")
+          .whereIn("order_id", orderIds)
+          .orderBy("id", "asc")
+      : [];
+
+      const productIds = [
+  ...new Set(
+    orderItems
+      .map((item) => item.product_id)
+      .filter(Boolean)
+  ),
+];
+
+const productImages = productIds.length
+  ? await db("product_images")
+      .whereIn("product_id", productIds)
+      .orderBy("sort_order", "asc")
+      .select("product_id", "url")
+  : [];
+
+const imageByProduct = new Map();
+
+for (const image of productImages) {
+  const key = String(image.product_id);
+
+  if (!imageByProduct.has(key)) {
+    imageByProduct.set(key, image.url);
+  }
+}
+
+    const itemsByOrder = new Map();
+
+    for (const item of orderItems) {
+      const key = String(item.order_id);
+
+      if (!itemsByOrder.has(key)) {
+        itemsByOrder.set(key, []);
+      }
+
+      itemsByOrder.get(key).push({
+        id: item.id,
+        productId: item.product_id,
+        variantId: item.variant_id,
+        name: item.name_snapshot,
+        sku: item.sku_snapshot,
+        size: item.option_snapshot || "",
+        price: Number(item.unit_price || 0),
+        quantity: Number(item.quantity || 0),
+        total: Number(item.line_total || 0),
+        gstRate: Number(item.gst_rate || 0),
+        image:
+  imageByProduct.get(String(item.product_id)) || "",
+      });
+    }
+
+    const student = req.student;
+
+    const address = [
+      student.address1,
+      student.address2,
+      student.city,
+      student.state,
+      student.zipcode,
+    ]
+      .filter(Boolean)
+      .join(", ");
+
     res.json({
       success: true,
       data: {
-        items: orders.map((o) => ({
-          id: o.id,
-          orderNumber: o.order_number,
-          type: o.type,
-          status: o.status,
-          paymentStatus: o.payment_status,
-          total: Number(o.total),
-          createdAt: o.created_at,
+        items: orders.map((order) => ({
+          id: order.id,
+          orderNumber: order.order_number,
+          type: order.type,
+          status: order.status,
+          paymentStatus: order.payment_status,
+          paymentMethod: "Paytm",
+
+          subtotal: Number(order.subtotal || 0),
+          shipping: Number(order.shipping || 0),
+          gstIncluded: Number(order.tax || 0),
+          cgst: Number(order.cgst_total || 0),
+          sgst: Number(order.sgst_total || 0),
+          igst: Number(order.igst_total || 0),
+          total: Number(order.total || 0),
+
+          createdAt: order.created_at,
+          items: itemsByOrder.get(String(order.id)) || [],
+
+          student: {
+            id: student.id,
+            name: student.name,
+            admissionNo: student.admission_number,
+            className: student.class_name,
+            phone: student.phone,
+            email: student.email,
+            address,
+          },
         })),
       },
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 }
 
