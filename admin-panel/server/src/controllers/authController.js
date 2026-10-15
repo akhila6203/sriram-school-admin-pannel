@@ -6,6 +6,7 @@ const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const auth = require('../middleware/auth');
 
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
@@ -38,12 +39,28 @@ function signToken(admin) {
   );
 }
 
-function publicAdmin(admin) {
+// function publicAdmin(admin) {
+//   return {
+//     id: admin.id,
+//     email: admin.email,
+//     name: admin.name,
+//     role: admin.role,
+//   };
+// }
+async function publicAdmin(admin) {
+  const permissions =
+    admin.role === "super_admin"
+      ? require("../utils/adminPermissions")
+      : await db("admin_user_permissions")
+          .where({ admin_user_id: admin.id })
+          .pluck("permission_key");
+
   return {
     id: admin.id,
     email: admin.email,
     name: admin.name,
     role: admin.role,
+    permissions,
   };
 }
 
@@ -63,11 +80,19 @@ async function login(req, res, next) {
     const token = signToken(user);
     setAuthCookie(res, token);
 
+    // res.json({
+    //   success: true,
+    //   message: 'Logged in',
+    //   data: { admin: publicAdmin(user) },
+    // });
     res.json({
-      success: true,
-      message: 'Logged in',
-      data: { admin: publicAdmin(user) },
-    });
+  success: true,
+  message: 'Logged in',
+  data: {
+    admin: await publicAdmin(user),
+  },
+  
+});
   } catch (err) {
     if (err.name === 'ZodError') {
       return next(

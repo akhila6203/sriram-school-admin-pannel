@@ -56,7 +56,7 @@ const empty = {
   smtp_secure: false,
   smtp_user: '',
   smtp_password: '',
-  smtp_from_name: 'Scholar Store',
+  smtp_from_name: 'BrassLeaf Store',
   smtp_from_email: '',
   payment_methods: [],
 }

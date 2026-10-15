@@ -12,6 +12,10 @@ const AppError = require('../utils/AppError');
 const settingsService = require('../services/settingsService');
 const mailer = require('../services/mailer');
 const { invoicesPdf, packingSlipsPdf } = require('../services/gstPdf');
+const {
+  sendDailyReportEmail,
+} = require('../services/dailyReportEmailService');
+
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -170,15 +174,28 @@ async function download(req, res, next) {
       ),
     ];
 
-    let ordersQuery = db('orders as o')
-      .join('students as s', 's.id', 'o.student_id')
-      .where('o.payment_status', 'paid')
-      .select(
-        'o.*',
-        's.student_name',
-        's.admission_number',
-        's.house_color'
-      );
+    // let ordersQuery = db('orders as o')
+    //   .join('students as s', 's.id', 'o.student_id')
+    //   .where('o.payment_status', 'paid')
+    //   .select(
+    //     'o.*',
+    //     's.student_name',
+    //     's.admission_number',
+    //     's.house_color'
+    //   );
+  let ordersQuery = db('orders as o')
+  .join('students as s', 's.id', 'o.student_id')
+  .where('o.payment_status', 'paid')
+  .select(
+    'o.*',
+    's.student_name',
+    's.admission_number',
+    's.house_color',
+    's.class_name as class_name',
+    's.phone as student_phone',
+    's.email as student_email',
+    's.gender as student_gender'
+  );
 
     if (ids.length) {
       // Selected checkboxes or individual download
@@ -232,15 +249,34 @@ async function download(req, res, next) {
     }
 
     const docs = orders.map((order) => ({
-      profile,
-      order,
-      items: itemsByOrder.get(Number(order.id)) || [],
-      student: {
-        student_name: order.student_name,
-        admission_number: order.admission_number,
-        house_color: order.house_color,
-      },
-    }));
+  profile,
+
+  order,
+
+  items: itemsByOrder.get(Number(order.id)) || [],
+
+  student: {
+    student_name: order.student_name,
+    admission_number: order.admission_number,
+    house_color: order.house_color,
+
+    // Add actual DB fields here after confirming
+    class_name: order.class_name || null,
+    phone: order.student_phone || null,
+    email: order.student_email || null,
+    gender: order.student_gender || null,
+  },
+}));
+    // const docs = orders.map((order) => ({
+    //   profile,
+    //   order,
+    //   items: itemsByOrder.get(Number(order.id)) || [],
+    //   student: {
+    //     student_name: order.student_name,
+    //     admission_number: order.admission_number,
+    //     house_color: order.house_color,
+    //   },
+    // }));
 
     const output =
       type === 'invoice'
@@ -352,30 +388,84 @@ async function getEmailSchedule(req, res, next) {
 async function putEmailSchedule(req, res, next) {
   try {
     const schema = z.object({
-      gst_email_to: z.string().email().or(z.literal('')),
-      gst_email_time: z.string(),
-      gst_email_report_day: z.string(),
-      gst_email_timezone: z.string().optional().default('Asia/Kolkata'),
+      gst_email_to: z.string().trim().email(),
+      gst_email_time: z.string().regex(
+        /^([01]\d|2[0-3]):[0-5]\d$/,
+        'Time must be HH:mm'
+      ),
+      gst_email_report_day: z.enum([
+        'today',
+        'yesterday',
+      ]),
+      gst_email_timezone: z.string()
+        .default('Asia/Kolkata'),
     });
+
     const body = schema.parse(req.body);
+
+    try {
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: body.gst_email_timezone,
+      });
+    } catch {
+      throw new AppError('Invalid timezone', 400);
+    }
+
     await settingsService.updateSettings(body);
-    res.json({ success: true, message: 'Schedule saved' });
+
+    res.json({
+      success: true,
+      message: 'Daily email schedule saved successfully',
+    });
+
   } catch (err) {
-    next(err.name === 'ZodError' ? new AppError('Validation failed', 400, err.issues) : err);
+    next(
+      err.name === 'ZodError'
+        ? new AppError(
+            'Validation failed',
+            400,
+            err.issues
+          )
+        : err
+    );
   }
 }
 
 async function sendTestEmail(req, res, next) {
   try {
     const s = await settingsService.getSettings();
-    const to = req.body?.to || s.gst_email_to || s.contact_email || s.smtp_from_email;
-    if (!to) throw new AppError('No recipient', 400);
-    await mailer.sendMail({
+
+    const to =
+      s.gst_email_to ||
+      s.contact_email ||
+      s.smtp_from_email;
+
+    if (!to) {
+      throw new AppError(
+        'Please configure admin email first',
+        400
+      );
+    }
+
+    if (!s.smtp_host) {
+      throw new AppError(
+        'Please configure SMTP settings first',
+        400
+      );
+    }
+
+    const result = await sendDailyReportEmail({
       to,
-      subject: 'Scholar Store — GST daily report (test)',
-      text: 'This is a test of the GST daily email report.',
+      force: true,
+      isTest: true,
     });
-    res.json({ success: true, message: `Sent to ${to}` });
+
+    res.json({
+      success: true,
+      message: `Daily report test email sent to ${to}`,
+      data: result,
+    });
+
   } catch (err) {
     next(err);
   }

@@ -4,6 +4,20 @@ const AppError = require('../utils/AppError');
 const paytmService = require('../services/paytmService');
 const paymentsController = require('./paymentsController');
 const storefrontController = require('./storefrontController');
+const {
+  sendOrderConfirmationEmail,
+} = require('../services/orderEmailService');
+
+async function sendConfirmationSafely(orderId) {
+  try {
+    await sendOrderConfirmationEmail(orderId);
+  } catch (error) {
+    console.error(
+      `Order ${orderId} confirmation email failed:`,
+      error.message
+    );
+  }
+}
 
 async function initiate(req, res, next) {
   try {
@@ -137,35 +151,74 @@ if (paymentsController.resultPaid(verified.statusJson)) {
     throw new AppError("Paytm amount mismatch", 400);
   }
 }
-    await db.transaction(async (trx) => {
-      const locked = await trx("orders")
-        .where({ id: order.id })
-        .forUpdate()
-        .first();
 
-      if (paymentsController.resultPaid(verified.statusJson)) {
-        await paymentsController.applyPaidResult(
-          trx,
-          locked,
-          verified.statusJson,
-          paytmOrderId
-        );
-      } else {
-        const gatewayStatus =
-          verified.statusJson?.body?.resultInfo?.resultStatus;
+let newlyPaid = false;
 
-        // Do not mark pending payments as failed.
-        // if (gatewayStatus === "F") {
-        if (gatewayStatus === "TXN_FAILURE") {
-          await paymentsController.applyFailed(
-            trx,
-            locked,
-            paytmOrderId,
-            verified.statusJson?.body?.resultInfo?.resultMsg
-          );
-        }
-      }
-    });
+await db.transaction(async (trx) => {
+  const locked = await trx("orders")
+    .where({ id: order.id })
+    .forUpdate()
+    .first();
+
+  if (paymentsController.resultPaid(verified.statusJson)) {
+    const result =
+      await paymentsController.applyPaidResult(
+        trx,
+        locked,
+        verified.statusJson,
+        paytmOrderId
+      );
+
+    newlyPaid = !result.idempotent;
+  } else {
+    const gatewayStatus =
+      verified.statusJson?.body?.resultInfo?.resultStatus;
+
+    if (gatewayStatus === "TXN_FAILURE") {
+      await paymentsController.applyFailed(
+        trx,
+        locked,
+        paytmOrderId,
+        verified.statusJson?.body?.resultInfo?.resultMsg
+      );
+    }
+  }
+});
+
+// Database transaction completed successfully.
+// Send email outside transaction.
+if (newlyPaid) {
+  await sendConfirmationSafely(order.id);
+}
+    // await db.transaction(async (trx) => {
+    //   const locked = await trx("orders")
+    //     .where({ id: order.id })
+    //     .forUpdate()
+    //     .first();
+
+    //   if (paymentsController.resultPaid(verified.statusJson)) {
+    //     await paymentsController.applyPaidResult(
+    //       trx,
+    //       locked,
+    //       verified.statusJson,
+    //       paytmOrderId
+    //     );
+    //   } else {
+    //     const gatewayStatus =
+    //       verified.statusJson?.body?.resultInfo?.resultStatus;
+
+    //     // Do not mark pending payments as failed.
+    //     // if (gatewayStatus === "F") {
+    //     if (gatewayStatus === "TXN_FAILURE") {
+    //       await paymentsController.applyFailed(
+    //         trx,
+    //         locked,
+    //         paytmOrderId,
+    //         verified.statusJson?.body?.resultInfo?.resultMsg
+    //       );
+    //     }
+    //   }
+    // });
 
     return res.json({
       success: true,
@@ -206,46 +259,49 @@ async function status(req, res, next) {
         gatewayBody?.resultInfo?.resultStatus;
 
       if (resultStatus === "TXN_SUCCESS") {
-        // Verify the response matches the original order.
-        if (
-          String(gatewayBody.orderId) !==
-          String(order.paytm_order_id)
-        ) {
-          throw new AppError(
-            "Paytm order ID mismatch",
-            400
-          );
-        }
+  if (
+    String(gatewayBody.orderId) !==
+    String(order.paytm_order_id)
+  ) {
+    throw new AppError("Paytm order ID mismatch", 400);
+  }
 
-        if (
-          !Number.isFinite(Number(gatewayBody.txnAmount)) ||
-          Math.abs(
-            Number(gatewayBody.txnAmount) -
-            Number(order.total)
-          ) > 0.001
-        ) {
-          throw new AppError(
-            "Paytm payment amount mismatch",
-            400
-          );
-        }
+  if (
+    !Number.isFinite(Number(gatewayBody.txnAmount)) ||
+    Math.abs(
+      Number(gatewayBody.txnAmount) -
+      Number(order.total)
+    ) > 0.001
+  ) {
+    throw new AppError("Paytm payment amount mismatch", 400);
+  }
 
-        await db.transaction(async (trx) => {
-          const lockedOrder = await trx("orders")
-            .where({ id: order.id })
-            .forUpdate()
-            .first();
+  let newlyPaid = false;
 
-          if (lockedOrder.payment_status === "pending") {
-            await paymentsController.applyPaidResult(
-              trx,
-              lockedOrder,
-              gatewayResponse,
-              order.paytm_order_id
-            );
-          }
-        });
-      }else if (resultStatus === "TXN_FAILURE") {
+  await db.transaction(async (trx) => {
+    const lockedOrder = await trx("orders")
+      .where({ id: order.id })
+      .forUpdate()
+      .first();
+
+    if (lockedOrder.payment_status === "pending") {
+      const result =
+        await paymentsController.applyPaidResult(
+          trx,
+          lockedOrder,
+          gatewayResponse,
+          order.paytm_order_id
+        );
+
+      newlyPaid = !result.idempotent;
+    }
+  });
+
+  if (newlyPaid) {
+    await sendConfirmationSafely(order.id);
+  }
+
+} else if (resultStatus === "TXN_FAILURE") {
   await db.transaction(async (trx) => {
     const lockedOrder = await trx("orders")
       .where({ id: order.id })
@@ -262,6 +318,7 @@ async function status(req, res, next) {
       );
     }
   });
+
 }
     }
 

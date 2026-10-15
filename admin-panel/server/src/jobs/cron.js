@@ -3,6 +3,10 @@ const db = require('../config/db');
 const settingsService = require('../services/settingsService');
 const mailer = require('../services/mailer');
 const paymentsController = require('../controllers/paymentsController');
+const {
+  sendDailyReportEmail,
+} = require('../services/dailyReportEmailService');
+
 
 async function expirePendingPaytm() {
   const cutoff = new Date(Date.now() - 30 * 60 * 1000);
@@ -19,41 +23,38 @@ async function expirePendingPaytm() {
 }
 
 async function sendGstDailyReport() {
-  const s = await settingsService.getSettings();
-  const to = s.gst_email_to || s.contact_email;
-  if (!to || !s.smtp_host) return;
-  const rows = await db('orders')
-    .whereRaw('DATE(created_at) = DATE(DATE_SUB(CURDATE(), INTERVAL 1 DAY))')
-    .select(
-      db.raw('COUNT(*) as orders'),
-      db.raw('COALESCE(SUM(total),0) as sales'),
-      db.raw('COALESCE(SUM(cgst_total + sgst_total + igst_total),0) as gst')
-    )
-    .first();
-  await mailer.sendMail({
-    to,
-    subject: `Scholar Store GST report — ${new Date().toISOString().slice(0, 10)}`,
-    text: `Orders: ${rows.orders}\nSales: ₹${rows.sales}\nGST: ₹${rows.gst}`,
-  });
+  return sendDailyReportEmail();
 }
 
 function startJobs() {
   cron.schedule('*/10 * * * *', () => {
     expirePendingPaytm().catch((err) => console.error('Paytm expiry job:', err.message));
   });
-  cron.schedule('0 * * * *', async () => {
-    try {
-      const s = await settingsService.getSettings();
-      const time = s.gst_email_time || '08:00';
-      const [hh, mm] = String(time).split(':');
-      const now = new Date(new Date().toLocaleString('en-US', { timeZone: s.gst_email_timezone || 'Asia/Kolkata' }));
-      if (now.getHours() === Number(hh) && now.getMinutes() < 10) {
-        await sendGstDailyReport();
-      }
-    } catch (err) {
-      console.error('GST email job:', err.message);
+  cron.schedule('* * * * *', async () => {
+  try {
+    const s = await settingsService.getSettings();
+
+    const time = s.gst_email_time || '08:00';
+    const timezone =
+      s.gst_email_timezone || 'Asia/Kolkata';
+
+    const now = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date());
+
+    if (now === time) {
+      await sendGstDailyReport();
     }
-  });
+  } catch (err) {
+    console.error(
+      'GST daily email job:',
+      err.message
+    );
+  }
+});
 }
 
 module.exports = { startJobs, expirePendingPaytm, sendGstDailyReport };

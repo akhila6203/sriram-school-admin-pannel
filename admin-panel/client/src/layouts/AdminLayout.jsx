@@ -35,6 +35,12 @@ import { useAuth } from '../context/AuthContext'
 import { useSnackbar } from '../context/SnackbarContext'
 import api from '../api/client'
 
+import PeopleOutlineIcon from "@mui/icons-material/PeopleOutlineOutlined";
+
+import {
+  canAccess,
+} from "../utils/adminPermissions";
+
 const DRAWER_WIDTH = 260
 
 const navItems = [
@@ -47,6 +53,12 @@ const navItems = [
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCartOutlinedIcon, badgeKey: 'newOrders' },
   { to: '/admin/reports', label: 'Reports', icon: AssessmentOutlinedIcon },
   { to: '/admin/gst', label: 'GST', icon: ReceiptLongOutlinedIcon },
+  {
+  to: "/admin/users",
+  label: "Users / Admins",
+  icon: PeopleOutlineIcon,
+  permission: "users_admins",
+},
   { to: '/admin/settings', label: 'Settings', icon: SettingsOutlinedIcon },
 ]
 
@@ -70,12 +82,27 @@ function AdminLayoutInner() {
   const fallbackTitle = useMemo(() => pathTitle(location.pathname), [location.pathname])
   const title = pageHeader?.title || fallbackTitle
 
+  // useEffect(() => {
+  //   api
+  //     .get('/admin/orders/counts')
+  //     .then((r) => setBadges({ newOrders: r.data.data.counts?.placed || 0 }))
+  //     .catch(() => {})
+  // }, [location.pathname])
   useEffect(() => {
-    api
-      .get('/admin/orders/counts')
-      .then((r) => setBadges({ newOrders: r.data.data.counts?.placed || 0 }))
-      .catch(() => {})
-  }, [location.pathname])
+  if (!canAccess(admin, "orders")) {
+    return;
+  }
+
+  api
+    .get("/admin/orders/counts")
+    .then((response) => {
+      setBadges({
+        newOrders:
+          response.data.data.counts?.placed || 0,
+      });
+    })
+    .catch(() => {});
+}, [location.pathname, admin]);
 
   async function handleLogout() {
     await logout()
@@ -102,15 +129,32 @@ function AdminLayoutInner() {
             color: 'primary.main',
           }}
         >
-          Scholar Store
+          BrassLeaf Store
         </Typography>
         <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
           Admin Panel
         </Typography>
       </Box>
       <Divider />
-      <List sx={{ px: 1.5, py: 1.5, flex: 1 }}>
-        {navItems.map((item) => {
+      {/* <List sx={{ px: 1.5, py: 1.5, flex: 1 }}> */}
+      <List
+  sx={{
+    px: 1.5,
+    py: 1.5,
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+  }}
+>
+        {/* {navItems.map((item) => { */}
+        {navItems
+  .filter((item) =>
+    canAccess(
+      admin,
+      item.permission || item.to.split("/").pop()
+    )
+  )
+  .map((item) => {
           const Icon = item.icon
           const selected = isActive(item)
           const badge = item.badgeKey ? badges[item.badgeKey] : 0

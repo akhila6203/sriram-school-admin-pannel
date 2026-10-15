@@ -7,6 +7,7 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+
 api.interceptors.request.use((config) => {
   if (config.data instanceof FormData) {
     if (config.headers?.setContentType) {

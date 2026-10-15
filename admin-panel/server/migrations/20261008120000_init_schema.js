@@ -283,24 +283,22 @@ exports.down = async function down(knex) {
 
 
 
-
-
 // CREATE TABLE IF NOT EXISTS admin_user_permissions (
-//     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+//   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
-//     admin_user_id BIGINT UNSIGNED NOT NULL,
+//   admin_user_id BIGINT UNSIGNED NOT NULL,
 
-//     permission_key VARCHAR(60) NOT NULL,
+//   permission_key VARCHAR(60) NOT NULL,
 
-//     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-//     UNIQUE KEY unique_user_permission (
-//         admin_user_id,
-//         permission_key
-//     ),
+//   UNIQUE KEY unique_admin_permission (
+//     admin_user_id,
+//     permission_key
+//   ),
 
-//     CONSTRAINT fk_admin_user_permissions
-//         FOREIGN KEY (admin_user_id)
-//         REFERENCES admin_users(id)
-//         ON DELETE CASCADE
-// );
+//   CONSTRAINT fk_admin_permission_user
+//     FOREIGN KEY (admin_user_id)
+//     REFERENCES admin_users(id)
+//     ON DELETE CASCADE
+// ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

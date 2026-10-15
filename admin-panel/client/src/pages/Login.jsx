@@ -12,9 +12,18 @@ import {
 } from '@mui/material'
 import { useAuth } from '../context/AuthContext'
 import { useSnackbar } from '../context/SnackbarContext'
+import {
+  landingPage,
+} from "../utils/adminPermissions";
 
 export default function Login() {
-  const { login, isAuthenticated, loading } = useAuth()
+  // const { login, isAuthenticated, loading } = useAuth()
+  const {
+  login,
+  admin,
+  isAuthenticated,
+  loading,
+} = useAuth();
   const { showToast } = useSnackbar()
   const navigate = useNavigate()
   const location = useLocation()
@@ -30,16 +39,35 @@ export default function Login() {
     },
   })
 
+  // if (!loading && isAuthenticated) {
+  //   return <Navigate to="/admin/dashboard" replace />
+  // }
   if (!loading && isAuthenticated) {
-    return <Navigate to="/admin/dashboard" replace />
-  }
+  return (
+    <Navigate
+      to={landingPage(admin)}
+      replace
+    />
+  );
+}
 
   async function onSubmit(values) {
     setSubmitting(true)
     try {
-      await login(values.email, values.password)
-      showToast('Welcome back', 'success')
-      navigate(location.state?.from?.pathname || '/admin/dashboard', { replace: true })
+      const response = await login(
+  values.email,
+  values.password
+);
+
+showToast("Welcome back", "success");
+
+navigate(
+  landingPage(response.data.admin),
+  { replace: true }
+);
+      // await login(values.email, values.password)
+      // showToast('Welcome back', 'success')
+      // navigate(location.state?.from?.pathname || '/admin/dashboard', { replace: true })
     } catch (err) {
       showToast(err.response?.data?.message || 'Login failed', 'error')
     } finally {
@@ -64,7 +92,7 @@ export default function Login() {
             variant="caption"
             sx={{ fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'primary.main' }}
           >
-            Scholar Store
+            BrassLeaf Store
           </Typography>
           <Typography variant="h5" sx={{ mt: 1, fontWeight: 700 }}>
             Admin login

@@ -5,6 +5,9 @@ const AppError = require('../utils/AppError');
 const paytmService = require('../services/paytmService');
 const stockService = require('../services/stock');
 const { assignInvoiceIfNeeded } = require('../utils/invoiceNumber');
+const {
+  sendOrderConfirmationEmail,
+} = require('../services/orderEmailService');
 
 async function listPayments(req, res, next) {
   try {
@@ -353,47 +356,95 @@ async function applyFailed(trx, order, paytmOrderId, msg) {
 
 async function recheckStatus(req, res, next) {
   try {
-    const order = await db('orders').where({ id: req.params.id }).first();
-    if (!order) throw new AppError('Order not found', 404);
+    const order = await db('orders')
+      .where({ id: req.params.id })
+      .first();
+
+    if (!order) {
+      throw new AppError('Order not found', 404);
+    }
+
     const paytmOrderId = order.paytm_order_id;
-    if (!paytmOrderId) throw new AppError('No Paytm order id', 400);
+
+    if (!paytmOrderId) {
+      throw new AppError('No Paytm order id', 400);
+    }
+
+    // Verify actual payment status from Paytm
     const statusJson = await paytmService.getStatus(paytmOrderId);
+
+    let newlyPaid = false;
+
     await db.transaction(async (trx) => {
-      const fresh = await trx('orders').where({ id: order.id }).forUpdate().first();
-      // if (resultPaid(statusJson)) {
-      //   await applyPaidResult(trx, fresh, statusJson, paytmOrderId);
-      // }
+      const fresh = await trx('orders')
+        .where({ id: order.id })
+        .forUpdate()
+        .first();
+
       if (resultPaid(statusJson)) {
-  const body = statusJson?.body || {};
+        const body = statusJson?.body || {};
 
-  if (
-    String(body.orderId) !== String(paytmOrderId)
-  ) {
-    throw new AppError('Paytm order ID mismatch', 400);
-  }
+        if (
+          String(body.orderId) !== String(paytmOrderId)
+        ) {
+          throw new AppError(
+            'Paytm order ID mismatch',
+            400
+          );
+        }
 
-  if (
-    !Number.isFinite(Number(body.txnAmount)) ||
-    Math.abs(
-      Number(body.txnAmount) - Number(fresh.total)
-    ) > 0.001
-  ) {
-    throw new AppError('Paytm amount mismatch', 400);
-  }
+        if (
+          !Number.isFinite(Number(body.txnAmount)) ||
+          Math.abs(
+            Number(body.txnAmount) -
+            Number(fresh.total)
+          ) > 0.001
+        ) {
+          throw new AppError(
+            'Paytm amount mismatch',
+            400
+          );
+        }
 
-  await applyPaidResult(
-    trx,
-    fresh,
-    statusJson,
-    paytmOrderId
-  );
-}
+        const result = await applyPaidResult(
+          trx,
+          fresh,
+          statusJson,
+          paytmOrderId
+        );
+
+        newlyPaid = !result.idempotent;
+      }
     });
-    res.json({ success: true, data: { statusJson: { resultInfo: statusJson?.body?.resultInfo } } });
+
+    // Email must be sent only AFTER transaction commits.
+    // Do not make SMTP calls inside the database transaction.
+    if (newlyPaid) {
+      try {
+        await sendOrderConfirmationEmail(order.id);
+      } catch (emailError) {
+        console.error(
+          'Order confirmation email error:',
+          emailError
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        statusJson: {
+          resultInfo: statusJson?.body?.resultInfo,
+        },
+      },
+    });
+
   } catch (err) {
     next(err);
   }
 }
+
+
 
 async function refundOrder(req, res, next) {
   try {
