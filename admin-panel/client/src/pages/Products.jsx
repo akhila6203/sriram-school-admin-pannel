@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
+import { getImageUrl } from '../utils/imageUrl'
 import {
   Avatar,
   Box,
@@ -200,13 +201,51 @@ export default function Products() {
             label: 'Image',
             width: 64,
             render: (r) => (
-              <Avatar variant="rounded" src={r.primaryImage || undefined} alt="" sx={{ width: 40, height: 40 }}>
-                —
-              </Avatar>
+              // <Avatar variant="rounded" src={r.primaryImage || undefined} alt="" sx={{ width: 40, height: 40 }}>
+              //   —
+              // </Avatar>
+              <Avatar
+  variant="rounded"
+  src={getImageUrl(r.primaryImage) || undefined}
+  alt=""
+  sx={{ width: 40, height: 40 }}
+>
+  —
+</Avatar>
             ),
           },
           { id: 'name', label: 'Name', render: (r) => r.name },
           { id: 'sku', label: 'SKU', render: (r) => r.sku || '—' },
+          {
+  id: 'classes',
+  label: 'Class',
+  width: 110,
+  render: (r) => {
+    const classes = r.classes ?? r.eligibility?.classes;
+
+    return Array.isArray(classes)
+      ? classes.length
+        ? classes.join(', ')
+        : '—'
+      : classes || '—';
+  },
+},
+
+{
+  id: 'gender',
+  label: 'Gender',
+  width: 130,
+  render: (r) => {
+    const gender = r.gender ?? r.eligibility?.gender;
+
+    return {
+      boys: 'Boys',
+      girls: 'Girls',
+      both: 'Both Boys and Girls',
+      unisex: 'Unisex',
+    }[String(gender || '').toLowerCase()] || gender || '—';
+  },
+},
           { id: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
           { id: 'categories', label: 'Categories', render: (r) => r.categoryName },
           {

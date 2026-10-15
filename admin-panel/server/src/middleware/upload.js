@@ -16,7 +16,10 @@ const memoryUpload = multer({
   },
 });
 
-const uploadRoot = path.resolve(env.uploadDir);
+// const uploadRoot = path.resolve(env.uploadDir);
+const uploadRoot = path.isAbsolute(env.uploadDir)
+  ? env.uploadDir
+  : path.resolve(__dirname, '../../', env.uploadDir);
 if (!fs.existsSync(uploadRoot)) {
   fs.mkdirSync(uploadRoot, { recursive: true });
 }

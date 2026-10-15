@@ -15,11 +15,23 @@ async function listPayments(req, res, next) {
       status: z.string().optional().default(''),
     });
     const q = schema.parse(req.query);
-   let query = db('payment_transactions as t')
+    let query = db('payment_transactions as t')
   .join('orders as o', 'o.id', 't.order_id')
-  .where('t.status', 'success')
-  .where('o.payment_status', 'paid')
+  .whereIn('t.status', [
+    'initiated',
+    'pending',
+    'success',
+  ])
+  .whereIn('o.payment_status', [
+    'pending',
+    'paid',
+  ])
   .select('t.*', 'o.order_number');
+  //  let query = db('payment_transactions as t')
+  // .join('orders as o', 'o.id', 't.order_id')
+  // .where('t.status', 'success')
+  // .where('o.payment_status', 'paid')
+  // .select('t.*', 'o.order_number');
     if (q.search) {
       const s = `%${q.search}%`;
       query = query.andWhere((b) =>
@@ -46,7 +58,11 @@ async function listPayments(req, res, next) {
           paytmOrderId: r.paytm_order_id,
           txnId: r.txn_id,
           bankTxnId: r.bank_txn_id,
-          status: r.status,
+          // status: r.status,
+          status:
+  r.status === 'success'
+    ? 'success'
+    : 'pending',
           amount: Number(r.amount),
           paymentMode: r.payment_mode,
           respMsg: r.resp_msg,
@@ -94,14 +110,45 @@ async function paymentSummary(req, res, next) {
     const totalTransactions =
       Number(summary?.totalTransactions || 0);
 
+      const attemptSummary = await db('payment_transactions')
+  .select(
+    db.raw('COUNT(*) AS total'),
+    db.raw(`
+      SUM(
+        CASE WHEN status = 'success' THEN 1 ELSE 0 END
+      ) AS successful
+    `),
+    db.raw(`
+      SUM(
+        CASE WHEN status IN ('pending', 'initiated') THEN 1 ELSE 0 END
+      ) AS pending
+    `),
+    db.raw(`
+      SUM(
+        CASE WHEN status = 'failed' THEN 1 ELSE 0 END
+      ) AS failed
+    `)
+  )
+  .first();
+
     res.json({
       success: true,
       data: {
-        totalTransactions,
-        successful: totalTransactions,
-        totalItems: Number(itemSummary?.totalItems || 0),
-        totalCollection: Number(summary?.totalCollection || 0),
-      },
+  totalTransactions:
+  Number(attemptSummary?.successful || 0) +
+  Number(attemptSummary?.pending || 0),
+  successful: Number(attemptSummary?.successful || 0),
+  pending: Number(attemptSummary?.pending || 0),
+  failed: Number(attemptSummary?.failed || 0),
+  totalItems: Number(itemSummary?.totalItems || 0),
+  totalCollection: Number(summary?.totalCollection || 0),
+},
+      // data: {
+      //   totalTransactions,
+      //   successful: totalTransactions,
+      //   totalItems: Number(itemSummary?.totalItems || 0),
+      //   totalCollection: Number(summary?.totalCollection || 0),
+      // },
     });
   } catch (error) {
     next(error);
@@ -313,9 +360,34 @@ async function recheckStatus(req, res, next) {
     const statusJson = await paytmService.getStatus(paytmOrderId);
     await db.transaction(async (trx) => {
       const fresh = await trx('orders').where({ id: order.id }).forUpdate().first();
+      // if (resultPaid(statusJson)) {
+      //   await applyPaidResult(trx, fresh, statusJson, paytmOrderId);
+      // }
       if (resultPaid(statusJson)) {
-        await applyPaidResult(trx, fresh, statusJson, paytmOrderId);
-      }
+  const body = statusJson?.body || {};
+
+  if (
+    String(body.orderId) !== String(paytmOrderId)
+  ) {
+    throw new AppError('Paytm order ID mismatch', 400);
+  }
+
+  if (
+    !Number.isFinite(Number(body.txnAmount)) ||
+    Math.abs(
+      Number(body.txnAmount) - Number(fresh.total)
+    ) > 0.001
+  ) {
+    throw new AppError('Paytm amount mismatch', 400);
+  }
+
+  await applyPaidResult(
+    trx,
+    fresh,
+    statusJson,
+    paytmOrderId
+  );
+}
     });
     res.json({ success: true, data: { statusJson: { resultInfo: statusJson?.body?.resultInfo } } });
   } catch (err) {

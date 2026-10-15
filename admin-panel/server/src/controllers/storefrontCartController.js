@@ -1,5 +1,6 @@
 
 const db = require("../config/db");
+const settingsService = require("../services/settingsService");
 const AppError = require("../utils/AppError");
 
 const { applyOrderGst, isIntraState, round2 } =
@@ -424,7 +425,15 @@ const sizes = variants.map((variant) => ({
 
   // Fixed shipping for non-empty carts
 //   const shipping = items.length > 0 ? 200 : 0;
- const shipping = items.length > 0 ? 0 : 0;
+ // Read fixed shipping fee saved in Admin Settings
+const settings = await settingsService.getSettings();
+
+const fixedShippingFee = Number(settings.shipping_fee ?? 0);
+
+const shipping =
+  items.length > 0
+    ? Math.max(0, fixedShippingFee)
+    : 0;
 
   const summary = {
     subtotal,

@@ -1,5 +1,9 @@
+// const { z } = require('zod');
+// const XLSX = require('xlsx');
+// const dayjs = require('dayjs');
 const { z } = require('zod');
 const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const dayjs = require('dayjs');
 const timezone = require('dayjs/plugin/timezone');
 const utc = require('dayjs/plugin/utc');
@@ -714,6 +718,45 @@ async function gstRegisterExport(req, res, next) {
   try {
     const rows = await getGstRegisterRows(req.query);
 
+    
+    // Excel sheet heading based on selected period
+    const monthNames = [
+      "January", "February", "March", "April",
+      "May", "June", "July", "August",
+      "September", "October", "November", "December",
+    ];
+
+    const {
+      period = "month",
+      year,
+      month,
+      date,
+      from,
+      to,
+    } = req.query;
+
+    const now = dayjs().tz("Asia/Kolkata");
+
+    let periodLabel = "GST Sales Register";
+
+    if (period === "month") {
+      const selectedYear = Number(year) || now.year();
+      const selectedMonth = Number(month) || now.month() + 1;
+
+      periodLabel += ` - ${monthNames[selectedMonth - 1]} ${selectedYear}`;
+    } else if (period === "year") {
+      periodLabel += ` - Year ${Number(year) || now.year()}`;
+    } else if (period === "date") {
+      periodLabel += ` - ${date || now.format("YYYY-MM-DD")}`;
+    } else if (period === "date_range") {
+      periodLabel += ` - ${from} to ${to}`;
+    } else if (period === "today") {
+      periodLabel += ` - ${now.format("DD/MM/YYYY")}`;
+    } else if (period === "week") {
+      periodLabel += " - This Week";
+    }
+
+
     const search = String(req.query.search || '')
       .trim()
       .toLowerCase();
@@ -763,6 +806,10 @@ async function gstRegisterExport(req, res, next) {
       sorters[sort] || sorters.newest
     );
 
+
+    // ==========================================
+    // GST EXCEL ROWS
+    // ==========================================
     const excelRows = filtered.map((r, index) => ({
       'S.No': index + 1,
       'Date': dayjs(r.created_at).format('DD/MM/YYYY'),
@@ -770,123 +817,638 @@ async function gstRegisterExport(req, res, next) {
       'Order Number': r.order_number || '',
       'Product Name / Size': r.product_name,
       'Product SKU': r.sku_snapshot || '',
-      'HSN Code': r.hsn_code || '',
-      'Quantity': r.quantity,
-      'Rate': r.rate,
-      'Value': r.value,
-      'Tax': r.gst,
-      'Taxable Value': r.taxable,
-      'SGST %': r.sgst_percent,
-      'CGST %': r.cgst_percent,
-      'IGST %': r.igst_percent,
-      'SGST Amount': r.sgst,
-      'CGST Amount': r.cgst,
-      'IGST Amount': r.igst,
-      'Total GST': r.gst,
-      'Shipping Amount': r.shipping_amount,
-      'Total With Shipping': r.total_with_shipping,
+      'Quantity': Number(r.quantity || 0),
+      'Rate': Number(r.rate || 0),
+      'Value': Number(r.value || 0),
+      'Tax': Number(r.gst || 0),
+      'Taxable Value': Number(r.taxable || 0),
+      'SGST %': Number(r.sgst_percent || 0),
+      'CGST %': Number(r.cgst_percent || 0),
+      'IGST %': Number(r.igst_percent || 0),
+      'SGST Amount': Number(r.sgst || 0),
+      'CGST Amount': Number(r.cgst || 0),
+      'IGST Amount': Number(r.igst || 0),
+      'Total GST': Number(r.gst || 0),
+      'Shipping Amount': Number(r.shipping_amount || 0),
+      'Net Value': Number(
+        (
+          Number(r.taxable || 0) +
+          Number(r.gst || 0) +
+          Number(r.shipping_amount || 0)
+        ).toFixed(2)
+      ),
+      'Total With Shipping': Number(r.total_with_shipping || 0),
     }));
 
-    const workbook = XLSX.utils.book_new();
-
-const sheet = XLSX.utils.json_to_sheet(excelRows, {
-  origin: "A3",
-  header: [
-        'S.No',
-        'Date',
-        'Invoice Number',
-        'Order Number',
-        'Product Name / Size',
-        'Product SKU',
-        'HSN Code',
-        'Quantity',
-        'Rate',
-        'Value',
-        'Tax',
-        'Taxable Value',
-        'SGST %',
-        'CGST %',
-        'IGST %',
-        'SGST Amount',
-        'CGST Amount',
-        'IGST Amount',
-        'Total GST',
-        'Shipping Amount',
-        'Total With Shipping',
-      ],
-    });
-
-    sheet['!cols'] = [
-      { wch: 8 },
-      { wch: 14 },
-      { wch: 24 },
-      { wch: 22 },
-      { wch: 34 },
-      { wch: 20 },
-      { wch: 16 },
-      { wch: 12 },
-      ...Array.from({ length: 13 }, () => ({ wch: 18 })),
+    const headers = [
+      'S.No',
+      'Date',
+      'Invoice Number',
+      'Order Number',
+      'Product Name / Size',
+      'Product SKU',
+      'Quantity',
+      'Rate',
+      'Value',
+      'Tax',
+      'Taxable Value',
+      'SGST %',
+      'CGST %',
+      'IGST %',
+      'SGST Amount',
+      'CGST Amount',
+      'IGST Amount',
+      'Total GST',
+      'Shipping Amount',
+      'Net Value',
+      'Total With Shipping',
     ];
 
-    // GST register period heading
-XLSX.utils.sheet_add_aoa(
-  sheet,
-  [[periodLabel]],
-  { origin: "A1" }
-);
+    // ==========================================
+    // CREATE WORKBOOK
+    // ==========================================
+    const workbook = new ExcelJS.Workbook();
 
-// Merge heading across all 21 columns
-sheet["!merges"] = [
-  ...(sheet["!merges"] || []),
-  {
-    s: { r: 0, c: 0 },
-    e: { r: 0, c: 20 },
-  },
-];
-
-// Heading row height
-sheet["!rows"] = [
-  { hpt: 30 },
-  { hpt: 10 },
-];
-    XLSX.utils.book_append_sheet(
-      workbook,
-      sheet,
+    const worksheet = workbook.addWorksheet(
       'GST Sales Register'
     );
 
-    const buffer = XLSX.write(workbook, {
-      type: 'buffer',
-      bookType: 'xlsx',
+    worksheet.columns = headers.map((header) => ({
+  key: header,
+  width:
+    header === 'Product Name / Size' ? 34 :
+    header === 'Invoice Number' ? 26 :
+    header === 'Order Number' ? 24 :
+    header === 'Product SKU' ? 20 :
+    header === 'Date' ? 16 :
+    header === 'S.No' ? 10 : 19,
+}));
+
+// Row 1 = GST title
+// Row 2 = empty space
+// Row 3 = column headings
+// worksheet.getRow(3).values = [
+//   undefined,
+//   ...headers,
+// ];
+const headingRow = worksheet.getRow(3);
+
+headers.forEach((header, index) => {
+  headingRow.getCell(index + 1).value = header;
+});
+
+    // ==========================================
+    // TITLE ROW
+    // ==========================================
+    worksheet.mergeCells(1, 1, 1, headers.length);
+
+    const titleCell = worksheet.getCell(1, 1);
+    titleCell.value = periodLabel;
+
+    titleCell.font = {
+      bold: true,
+      size: 16,
+      color: { argb: 'FF3730A3' },
+    };
+
+    titleCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEDEBFF' },
+    };
+
+    titleCell.alignment = {
+      vertical: 'middle',
+      horizontal: 'left',
+      indent: 1,
+    };
+
+    worksheet.getRow(1).height = 40;
+    worksheet.getRow(2).height = 12;
+
+    // ==========================================
+    // COLUMN HEADER STYLING
+    // ==========================================
+    const headerRow = worksheet.getRow(3);
+
+    headerRow.height = 38;
+
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFE0E7FF' },
+};
+
+cell.font = {
+  bold: true,
+  color: { argb: 'FF3730A3' },
+  size: 11,
+};
+
+      cell.alignment = {
+        vertical: 'middle',
+        horizontal: 'center',
+        wrapText: true,
+      };
+      cell.border = {
+  top: { style: 'thin', color: { argb: 'FF4338CA' } },
+  bottom: { style: 'thin', color: { argb: 'FF4338CA' } },
+  left: { style: 'thin', color: { argb: 'FF818CF8' } },
+  right: { style: 'thin', color: { argb: 'FF818CF8' } },
+};
     });
+
+    // ==========================================
+    // ADD DATA ROWS
+    // ==========================================
+    const currencyColumns = new Set([
+      'Rate',
+      'Value',
+      'Tax',
+      'Taxable Value',
+      'SGST Amount',
+      'CGST Amount',
+      'IGST Amount',
+      'Total GST',
+      'Shipping Amount',
+      'Net Value',
+      'Total With Shipping',
+    ]);
+
+    excelRows.forEach((item, index) => {
+      const row = worksheet.addRow(item);
+
+      row.height = 27;
+
+      row.eachCell({ includeEmpty: true }, (cell, col) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: {
+            argb: index % 2 === 0
+              ? 'FFFFFFFF'
+              : 'FFF5F7FF',
+          },
+        };
+
+        row.eachCell({ includeEmpty: true }, (cell) => {
+  cell.border = {
+    top: {
+      style: 'thin',
+      color: { argb: 'FFD1D5DB' },
+    },
+    bottom: {
+      style: 'thin',
+      color: { argb: 'FFD1D5DB' },
+    },
+    left: {
+      style: 'thin',
+      color: { argb: 'FFD1D5DB' },
+    },
+    right: {
+      style: 'thin',
+      color: { argb: 'FFD1D5DB' },
+    },
+  };
+});
+
+        cell.font = {
+          size: 10,
+          color: { argb: 'FF1E293B' },
+        };
+
+        cell.alignment = {
+          vertical: 'middle',
+          wrapText: true,
+        };
+
+        cell.border = {
+          bottom: {
+            style: 'hair',
+            color: { argb: 'FFE2E8F0' },
+          },
+        };
+
+        if (currencyColumns.has(headers[col - 1])) {
+          cell.numFmt = '"₹"#,##0.00';
+        }
+      });
+    });
+
+    // Freeze headings while scrolling
+    worksheet.views = [
+      {
+        state: 'frozen',
+        ySplit: 3,
+      },
+    ];
+
+    // ==========================================
+    // DOWNLOAD EXCEL
+    // ==========================================
+    const buffer = await workbook.xlsx.writeBuffer();
 
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
 
-   const filePeriod = periodLabel
-  .replace("GST Sales Register", "")
-  .trim()
-  .replace(/[^a-zA-Z0-9]+/g, "-")
-  .replace(/^-|-$/g, "")
-  .toLowerCase();
+    const filePeriod = periodLabel
+      .replace('GST Sales Register', '')
+      .trim()
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase();
 
-res.setHeader(
-  "Content-Disposition",
-  `attachment; filename="gst-sales-register-${filePeriod || "report"}.xlsx"`
-);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="gst-sales-register-${filePeriod || 'report'}.xlsx"`
+    );
 
-    res.send(buffer);
+    res.send(Buffer.from(buffer));
+} catch (error) {
+  console.error('GST Excel Export Error:', error);
+  next(error);
+}
+  // } catch (error) {
+  //   next(error);
+  // }
+}
+
+
+async function reportsExcelExport(req, res, next) {
+  try {
+    const rawIds = String(req.query.orderIds || "").trim();
+
+    const ids = [
+      ...new Set(
+        rawIds
+          .split(",")
+          .map(Number)
+          .filter((id) => Number.isSafeInteger(id) && id > 0)
+      ),
+    ];
+
+    const range = String(req.query.range || "this_month");
+    const from = String(req.query.from || "");
+    const to = String(req.query.to || "");
+
+    const query = db("orders as o")
+      .join("students as s", "s.id", "o.student_id")
+      .where("o.payment_status", "paid")
+      .select(
+        "o.*",
+        "s.student_name",
+        "s.admission_number"
+      );
+
+    if (ids.length > 0) {
+      query.whereIn("o.id", ids);
+    } else {
+      const q = {
+        range,
+        from,
+        to,
+        studentIds: String(req.query.studentIds || "")
+          .split(",")
+          .map(Number)
+          .filter(Boolean),
+      };
+
+      const bounds = rangeFromQuery(q);
+      applyOrderFilters(query, q, bounds);
+    }
+
+    const orders = await query
+      .orderBy("o.created_at", "desc")
+      .orderBy("o.id", "desc");
+
+    if (!orders.length) {
+      throw new AppError(
+        "No paid orders found for selected filters",
+        404
+      );
+    }
+
+    // ==========================================
+    // DYNAMIC REPORT HEADING
+    // ==========================================
+
+    const formatDate = (value) => {
+      if (!value) return "";
+      const parsed = dayjs(value);
+      return parsed.isValid()
+        ? parsed.format("DD/MM/YYYY")
+        : value;
+    };
+
+    const today = dayjs().tz("Asia/Kolkata");
+
+    let reportHeading = "Sales Reports";
+
+    if (ids.length > 0) {
+      reportHeading =
+        `Sales Reports - Selected Orders (${orders.length})`;
+    } else {
+      switch (range) {
+        case "today":
+          reportHeading =
+            `Sales Reports - Today (${today.format("DD/MM/YYYY")})`;
+          break;
+
+        case "yesterday":
+          reportHeading =
+            `Sales Reports - Yesterday (${today.subtract(1, "day").format("DD/MM/YYYY")})`;
+          break;
+
+        case "last7":
+          reportHeading = "Sales Reports - Last 7 Days";
+          break;
+
+        case "last30":
+          reportHeading = "Sales Reports - Last 30 Days";
+          break;
+
+        case "this_month":
+          reportHeading =
+            `Sales Reports - ${today.format("MMMM YYYY")}`;
+          break;
+
+        case "custom":
+        case "select": {
+          const bounds = rangeFromQuery({
+            range,
+            from,
+            to,
+          });
+
+          reportHeading =
+            `Sales Reports - ${formatDate(bounds.from)} to ${formatDate(bounds.to)}`;
+          break;
+        }
+
+        default:
+          reportHeading = "Sales Reports";
+      }
+    }
+
+    // ==========================================
+    // CREATE EXCEL WORKBOOK
+    // ==========================================
+
+    const workbook = new ExcelJS.Workbook();
+
+    workbook.creator = "Scholar Store";
+    workbook.created = new Date();
+
+    const worksheet = workbook.addWorksheet(
+      "Sales Reports"
+    );
+
+    const columns = [
+      { header: "S.No", key: "sno", width: 10 },
+      { header: "Order Number", key: "order", width: 23 },
+      { header: "Invoice Number", key: "invoice", width: 26 },
+      { header: "Packing Slip Number", key: "slip", width: 27 },
+      { header: "Student (Admission No)", key: "student", width: 34 },
+      { header: "Net Value", key: "net", width: 18 },
+      { header: "GST", key: "gst", width: 15 },
+      { header: "Shipping", key: "shipping", width: 17 },
+      { header: "Total", key: "total", width: 17 },
+      { header: "Order Date", key: "date", width: 19 },
+    ];
+
+    worksheet.columns = columns.map(({ key, width }) => ({
+      key,
+      width,
+    }));
+
+    // ==========================================
+    // ROW 1 - MAIN HEADING
+    // ==========================================
+
+    worksheet.mergeCells("A1:J1");
+
+    const titleCell = worksheet.getCell("A1");
+
+    titleCell.value = reportHeading;
+
+    titleCell.font = {
+      name: "Calibri",
+      size: 16,
+      bold: true,
+      color: { argb: "FF3730A3" },
+    };
+
+    titleCell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFEEF2FF" },
+    };
+
+    titleCell.alignment = {
+      vertical: "middle",
+      horizontal: "left",
+      indent: 1,
+    };
+
+    worksheet.getRow(1).height = 42;
+
+    // Blank row between title and table
+    worksheet.getRow(2).height = 12;
+
+    // ==========================================
+    // ROW 3 - COLUMN HEADINGS
+    // ==========================================
+
+    const headerRow = worksheet.getRow(3);
+
+    columns.forEach((column, index) => {
+      headerRow.getCell(index + 1).value =
+        column.header;
+    });
+
+    headerRow.height = 36;
+
+    headerRow.eachCell(
+      { includeEmpty: true },
+      (cell) => {
+        cell.font = {
+          name: "Calibri",
+          size: 11,
+          bold: true,
+          color: { argb: "FF3730A3" },
+        };
+
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE0E7FF" },
+        };
+
+        cell.alignment = {
+          vertical: "middle",
+          horizontal: "center",
+          wrapText: true,
+        };
+
+        cell.border = {
+          top: {
+            style: "thin",
+            color: { argb: "FFC7D2FE" },
+          },
+          bottom: {
+            style: "thin",
+            color: { argb: "FFC7D2FE" },
+          },
+          left: {
+            style: "thin",
+            color: { argb: "FFC7D2FE" },
+          },
+          right: {
+            style: "thin",
+            color: { argb: "FFC7D2FE" },
+          },
+        };
+      }
+    );
+
+    // ==========================================
+    // DATA ROWS - START FROM ROW 4
+    // ==========================================
+
+    orders.forEach((order, index) => {
+      const total = Number(order.total || 0);
+
+      const gst =
+        Number(order.cgst_total || 0) +
+        Number(order.sgst_total || 0) +
+        Number(order.igst_total || 0);
+
+      const shipping = Number(order.shipping || 0);
+
+      // Net value excludes GST and shipping
+      const net = Number(
+        (total - gst - shipping).toFixed(2)
+      );
+
+      const row = worksheet.addRow({
+        sno: index + 1,
+        order: order.order_number || "",
+        invoice: order.invoice_number || "",
+        slip: order.packing_slip_number || "",
+        student:
+          `${order.student_name || ""} (${order.admission_number || ""})`,
+        net,
+        gst,
+        shipping,
+        total,
+        date: order.created_at
+          ? dayjs(order.created_at).format("DD/MM/YYYY")
+          : "",
+      });
+
+      row.height = 28;
+
+      row.eachCell(
+        { includeEmpty: true },
+        (cell, col) => {
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: {
+              argb:
+                index % 2 === 0
+                  ? "FFFFFFFF"
+                  : "FFF5F7FF",
+            },
+          };
+
+          cell.border = {
+            top: {
+              style: "thin",
+              color: { argb: "FFD1D5DB" },
+            },
+            bottom: {
+              style: "thin",
+              color: { argb: "FFD1D5DB" },
+            },
+            left: {
+              style: "thin",
+              color: { argb: "FFD1D5DB" },
+            },
+            right: {
+              style: "thin",
+              color: { argb: "FFD1D5DB" },
+            },
+          };
+
+          cell.alignment = {
+            vertical: "middle",
+            horizontal:
+              col === 1 || col >= 6
+                ? "center"
+                : "left",
+          };
+
+          if (col >= 6 && col <= 9) {
+            cell.numFmt = '"₹"#,##0.00';
+          }
+        }
+      );
+    });
+
+    // ==========================================
+    // FREEZE HEADER AND ENABLE FILTER
+    // ==========================================
+
+    worksheet.views = [
+      {
+        state: "frozen",
+        ySplit: 3,
+      },
+    ];
+
+    worksheet.autoFilter = {
+      from: "A3",
+      to: "J3",
+    };
+
+    // ==========================================
+    // DOWNLOAD EXCEL
+    // ==========================================
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="reports-sales.xlsx"'
+    );
+
+    res.send(Buffer.from(buffer));
+
   } catch (error) {
+    console.error(
+      "Reports Excel Export Error:",
+      error
+    );
+
     next(error);
   }
 }
 
 
+
 module.exports = {
   documents,
   summary,
+  reportsExcelExport,
   rateWise,
   hsnWise,
   download,

@@ -112,6 +112,7 @@ async function buildReport(filters) {
       'v.option2_name',
       'v.option2_value',
       'v.stock_qty',
+      'v.reserved_qty',
       'v.low_stock_threshold',
       'v.price_override',
       'v.image_url',
@@ -200,6 +201,9 @@ async function buildReport(filters) {
       unitsSold: Number(sales?.units_sold || 0),
       salesAmount: Number(sales?.sales_amount || 0),
       unitsInStock: stock,
+      reservedUnits: Number(variant.reserved_qty || 0),
+availableUnits:
+  stock - Number(variant.reserved_qty || 0),
       lowStockThreshold: threshold,
       stockStatus: stockStatus(stock, threshold),
       isActive: Boolean(variant.is_active),
@@ -224,6 +228,7 @@ async function buildReport(filters) {
         (sum, item) => sum + item.salesAmount, 0
       ).toFixed(2)
     ),
+
     orders: Number(ordersRow?.count || 0),
     unitsInStock: allItems.reduce(
       (sum, item) => sum + item.unitsInStock, 0
@@ -234,6 +239,15 @@ async function buildReport(filters) {
     outOfStock: allItems.filter(
       (item) => item.stockStatus === 'out'
     ).length,
+    reservedUnits: allItems.reduce(
+  (sum, item) => sum + item.reservedUnits,
+  0
+),
+
+availableUnits: allItems.reduce(
+  (sum, item) => sum + item.availableUnits,
+  0
+),
   };
 
   let items = allItems.filter((item) => {
@@ -330,72 +344,88 @@ async function downloadReport(req, res, next) {
         'Units Sold',
         'Sales Amount (INR)',
         'Units In Stock',
-        'Stock Status',
-        'Image URL',
+        
       ],
     ];
 
     items.forEach((item, index) => {
-      rows.push([
-        index + 1,
-        safeText(item.productName),
-        safeText(item.sku),
-        safeText(item.options),
-        item.price,
-        item.unitsSold,
-        item.salesAmount,
-        item.unitsInStock,
-        item.stockStatus === 'out'
-          ? 'Out of Stock'
-          : item.stockStatus === 'low'
-            ? 'Low Stock'
-            : 'In Stock',
-        safeText(item.imageUrl),
-      ]);
-    });
+  rows.push([
+    index + 1,
+    safeText(item.productName),
+    safeText(item.sku),
+    safeText(item.options),
+    item.price,
+    item.unitsSold,
+    item.salesAmount,
+    item.unitsInStock,
+  ]);
+});
 
-    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    const workbook = new ExcelJS.Workbook();
+const sheet = workbook.addWorksheet('Inventory');
 
-    sheet['!cols'] = [
-      { wch: 8 },
-      { wch: 30 },
-      { wch: 20 },
-      { wch: 28 },
-      { wch: 18 },
-      { wch: 15 },
-      { wch: 20 },
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 45 },
-    ];
+rows.forEach((row) => sheet.addRow(row));
 
-    const workbook = XLSX.utils.book_new();
+sheet.columns = [
+  { width: 8 },
+  { width: 30 },
+  { width: 20 },
+  { width: 28 },
+  { width: 18 },
+  { width: 15 },
+  { width: 20 },
+  { width: 18 },
+];
 
-    XLSX.utils.book_append_sheet(
-      workbook,
-      sheet,
-      'Inventory'
-    );
+// Row 18 contains the column headings.
+const headerRow = sheet.getRow(18);
 
-    const buffer = XLSX.write(workbook, {
-      type: 'buffer',
-      bookType: 'xlsx',
-    });
+headerRow.height = 28;
 
-    const filename =
-      `inventory-${filters.from}-to-${filters.to}.xlsx`;
+headerRow.eachCell((cell) => {
+  cell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8E5FF' },
+  };
 
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
+  cell.font = {
+    bold: true,
+    color: { argb: 'FF312E81' },
+  };
 
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`
-    );
+  cell.alignment = {
+    vertical: 'middle',
+    horizontal: 'center',
+  };
 
-    res.send(buffer);
+  cell.border = {
+    bottom: {
+      style: 'thin',
+      color: { argb: 'FFC7C3F5' },
+    },
+  };
+});
+
+sheet.views = [
+  { state: 'frozen', ySplit: 18 },
+];
+
+const filename =
+  `inventory-${filters.from}-to-${filters.to}.xlsx`;
+
+res.setHeader(
+  'Content-Type',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+);
+
+res.setHeader(
+  'Content-Disposition',
+  `attachment; filename="${filename}"`
+);
+
+await workbook.xlsx.write(res);
+res.end();
   } catch (error) {
     next(error);
   }

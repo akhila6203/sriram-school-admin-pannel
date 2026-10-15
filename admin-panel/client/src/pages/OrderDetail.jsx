@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+// import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -68,7 +69,15 @@ export default function OrderDetail() {
 
   return (
     <>
-      <PageHeader
+    <PageHeader
+  title={order.orderNumber}
+  subtitle={`${order.studentName} · ${order.admissionNumber}`}
+  breadcrumbs={[
+    { label: 'Orders', to: '/admin/orders' },
+    { label: order.orderNumber },
+  ]}
+/>
+      {/* <PageHeader
         title={order.orderNumber}
         subtitle={`${order.studentName} · ${order.admissionNumber}`}
         breadcrumbs={[{ label: 'Orders', to: '/admin/orders' }, { label: order.orderNumber }]}
@@ -89,7 +98,7 @@ export default function OrderDetail() {
             <Button component={RouterLink} to="/admin/orders" variant="outlined">Back</Button>
           </Stack>
         }
-      />
+      /> */}
 
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -98,6 +107,7 @@ export default function OrderDetail() {
               <Typography fontWeight={700} sx={{ mb: 1 }}>Summary</Typography>
               <Stack spacing={0.5}>
                 <Typography>Status: <StatusBadge status={order.status} /></Typography>
+
                 <Typography>Type: <StatusBadge status={order.type} /></Typography>
                 <Typography>Subtotal: {formatINR(order.subtotal)}</Typography>
                 <Typography>Tax: {formatINR(order.tax)}</Typography>
@@ -148,15 +158,112 @@ export default function OrderDetail() {
               <Typography fontWeight={700} sx={{ mb: 1 }}>Payment</Typography>
               <Typography>Method: {order.paymentMethod}</Typography>
               <Typography>Status: <StatusBadge status={order.paymentStatus} /></Typography>
-              {payment && (
+<Typography sx={{ mt: 1 }}>
+  Payment Status:{' '}
+  <StatusBadge
+    status={
+      ['paid', 'partially_refunded', 'refunded'].includes(
+        order.paymentStatus
+      )
+        ? 'success'
+        : 'pending'
+    }
+  />
+</Typography>
+              {/* {payment && (
                 <Stack spacing={0.5} sx={{ mt: 1 }}>
                   <Typography variant="body2">Paytm order: {payment.paytmOrderId}</Typography>
                   <Typography variant="body2">Txn: {payment.txnId || '—'}</Typography>
                   <Typography variant="body2">Bank txn: {payment.bankTxnId || '—'}</Typography>
                   <Typography variant="body2">{payment.respMsg}</Typography>
                 </Stack>
-              )}
-              <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
+              )} */}
+              {payment && (
+  <Stack spacing={0.5} sx={{ mt: 1 }}>
+    <Typography variant="body2">
+      Paytm order: {payment.paytmOrderId || '—'}
+    </Typography>
+
+    <Typography variant="body2">
+      Txn: {payment.txnId || 'Awaiting confirmation'}
+    </Typography>
+
+    <Typography variant="body2">
+      Bank txn: {payment.bankTxnId || '—'}
+    </Typography>
+
+    <Typography variant="body2">
+      {payment.respMsg || 'No gateway response yet'}
+    </Typography>
+  </Stack>
+)}
+
+{order.paymentStatus === 'pending' && (
+  <Typography
+    variant="body2"
+    sx={{ mt: 1, color: 'warning.main' }}
+  >
+    Payment confirmation is pending. Verify with Paytm
+    before marking this order as paid.
+  </Typography>
+)}
+              <Stack
+  direction="row"
+  spacing={1}
+  sx={{ mt: 2 }}
+  flexWrap="wrap"
+  useFlexGap
+>
+  <Button
+    size="small"
+    variant="outlined"
+    disabled={
+      order.paymentMethod !== 'paytm' ||
+      order.paymentStatus !== 'pending'
+    }
+    onClick={async () => {
+      try {
+        await api.post(
+          `/admin/orders/${id}/paytm/status`
+        )
+
+        const res = await getOrder(id)
+
+        setData(res.data)
+
+        const updatedStatus =
+          res.data.order.paymentStatus
+
+        if (
+          ['paid', 'partially_refunded', 'refunded'].includes(
+            updatedStatus
+          )
+        ) {
+          showToast(
+            'Payment verified successfully',
+            'success'
+          )
+        } else {
+          showToast(
+            'Payment confirmation is still pending',
+            'info'
+          )
+        }
+      } catch (err) {
+        showToast(
+          err.response?.data?.message ||
+            'Unable to verify Paytm payment',
+          'error'
+        )
+      }
+    }}
+  >
+    {order.paymentStatus === 'pending'
+      ? 'Verify payment & update status'
+      : 'Payment verified'}
+  </Button>
+</Stack>
+              {/* <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
                 <Button
                   size="small"
                   variant="outlined"
@@ -172,7 +279,7 @@ export default function OrderDetail() {
                 >
                   Check status with Paytm
                 </Button>
-              </Stack>
+              </Stack> */}
               {isPaytmPaid && (
                 <Stack spacing={1} sx={{ mt: 2 }}>
                   <TextField label="Refund amount" type="number" value={refund.amount} onChange={(e) => setRefund((r) => ({ ...r, amount: e.target.value }))} />

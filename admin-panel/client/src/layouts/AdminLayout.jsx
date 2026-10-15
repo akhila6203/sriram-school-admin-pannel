@@ -29,6 +29,7 @@ import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined'
 import BackpackOutlinedIcon from '@mui/icons-material/BackpackOutlined'
 import ShoppingCartOutlinedIcon from '@mui/icons-material/ShoppingCartOutlined'
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
+import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import { useAuth } from '../context/AuthContext'
 import { useSnackbar } from '../context/SnackbarContext'
@@ -44,6 +45,7 @@ const navItems = [
   { to: '/admin/inventory', label: 'Inventory', icon: WarehouseOutlinedIcon },
   { to: '/admin/kit', label: 'Kit', icon: BackpackOutlinedIcon },
   { to: '/admin/orders', label: 'Orders', icon: ShoppingCartOutlinedIcon, badgeKey: 'newOrders' },
+  { to: '/admin/reports', label: 'Reports', icon: AssessmentOutlinedIcon },
   { to: '/admin/gst', label: 'GST', icon: ReceiptLongOutlinedIcon },
   { to: '/admin/settings', label: 'Settings', icon: SettingsOutlinedIcon },
 ]

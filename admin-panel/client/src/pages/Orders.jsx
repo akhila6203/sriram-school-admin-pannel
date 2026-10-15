@@ -45,12 +45,20 @@ export default function Orders() {
   const [counts, setCounts] = useState({})
   const [payFilters, setPayFilters] = useState({ search: '' })
 
-const [paymentStats, setPaymentStats] = useState({
+  const [paymentStats, setPaymentStats] = useState({
   totalTransactions: 0,
   successful: 0,
+  pending: 0,
+  failed: 0,
   totalItems: 0,
   totalCollection: 0,
 })
+// const [paymentStats, setPaymentStats] = useState({
+//   totalTransactions: 0,
+//   successful: 0,
+//   totalItems: 0,
+//   totalCollection: 0,
+// })
   // const [payFilters, setPayFilters] = useState({ search: '', status: '' })
 
   const orderFilters = useMemo(
@@ -195,7 +203,7 @@ const [paymentStats, setPaymentStats] = useState({
   <TextField
     select
     size="small"
-    label="House"
+    label="Shirt Color"
     value={filters.houseColor}
     onChange={(e) =>
       setFilters((f) => ({
@@ -328,7 +336,7 @@ const [paymentStats, setPaymentStats] = useState({
               { id: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
               { id: 'student', label: 'Student', render: (r) => r.studentName },
               { id: 'adm', label: 'Admission no.', render: (r) => r.admissionNumber },
-              { id: 'house', label: 'House', render: (r) => r.houseColor },
+              { id: 'house', label: 'SHIRT COLOR', render: (r) => r.houseColor },
               { id: 'type', label: 'Type', render: (r) => <StatusBadge status={r.type} /> },
               { id: 'phone', label: 'Phone/Email', render: (r) => r.phone || r.email || '—' },
               { id: 'items', label: 'Items', render: (r) => r.itemCount },
@@ -337,6 +345,21 @@ const [paymentStats, setPaymentStats] = useState({
               { id: 'total', label: 'Total', render: (r) => formatINR(r.total) },
               { id: 'pm', label: 'Payment method', render: (r) => r.paymentMethod },
               { id: 'ps', label: 'Payment', render: (r) => <StatusBadge status={r.paymentStatus} /> },
+{
+  id: 'gatewayStatus',
+  label: 'Payment Status',
+  render: (r) => (
+    <StatusBadge
+      status={
+        r.paymentStatus === 'paid'
+          ? 'success'
+          : r.paymentStatus === 'pending'
+            ? 'pending'
+            : r.gatewayStatus || 'pending'
+      }
+    />
+  ),
+},
               { id: 'txn', label: 'Txn ID', render: (r) => r.txnId || '—' },
             ]}
             rows={items}
@@ -359,9 +382,10 @@ const [paymentStats, setPaymentStats] = useState({
   sx={{
     display: 'grid',
     gridTemplateColumns: {
-      xs: 'repeat(2, minmax(0, 1fr))',
-      lg: 'repeat(4, minmax(0, 1fr))',
-    },
+  xs: 'repeat(1, minmax(0, 1fr))',
+  sm: 'repeat(2, minmax(0, 1fr))',
+  lg: 'repeat(5, minmax(0, 1fr))',
+},
     gap: 2,
     mb: 3,
   }}
@@ -375,6 +399,11 @@ const [paymentStats, setPaymentStats] = useState({
       label: 'Successful',
       value: paymentStats.successful,
     },
+    {
+  label: 'Pending',
+  value: paymentStats.pending,
+},
+
     {
       label: 'Total Items',
       value: paymentStats.totalItems,
@@ -451,6 +480,7 @@ const [paymentStats, setPaymentStats] = useState({
               { id: 'msg', label: 'Response', render: (r) => r.respMsg || '—' },
             ]}
             rows={payments.items}
+            onRowClick={(r) => navigate(`/admin/orders/${r.orderId}`)}
             loading={payments.loading}
             error={payments.error}
             page={payments.page}

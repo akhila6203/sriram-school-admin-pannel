@@ -37,7 +37,10 @@ export default function App() {
             <Route path="kit" element={<Kit />} />
             <Route path="orders" element={<Orders />} />
             <Route path="orders/:id" element={<OrderDetail />} />
-            <Route path="gst" element={<Gst />} />
+            
+            {/* <Route path="gst" element={<Gst />} /> */}
+            <Route path="reports" element={<Gst mode="reports" />} />
+            <Route path="gst" element={<Gst mode="gst" />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Route>

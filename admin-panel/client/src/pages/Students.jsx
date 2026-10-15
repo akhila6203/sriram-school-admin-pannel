@@ -335,7 +335,7 @@ export default function Students() {
     },
     {
       id: 'houseColor',
-      label: 'House',
+      label: 'SHIRT COLOR',
       render: (r) => (
         <Chip
           size="small"
@@ -512,14 +512,14 @@ export default function Students() {
         <TextField
           select
           size="small"
-          label="House"
+          label="Shirt Color"
           value={filters.houseColor}
           onChange={(e) =>
             changeFilter('houseColor', e.target.value)
           }
           sx={inputSx}
         >
-          <MenuItem value="">All Houses</MenuItem>
+          <MenuItem value="">All Shirt Colors</MenuItem>
           {houses.map((house) => (
             <MenuItem key={house} value={house}>
               {house}
@@ -714,7 +714,7 @@ export default function Students() {
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   select
-                  label="House"
+                  label="SHIRT COLOR"
                   fullWidth
                   required
                   value={form.houseColor}
@@ -885,7 +885,7 @@ export default function Students() {
                   },
                   {
                     id: 'houseColor',
-                    label: 'House',
+                    label: 'Shirt Color',
                     render: (r) => r.houseColor,
                   },
                 ]}

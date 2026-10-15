@@ -646,13 +646,24 @@ export default function GstSalesRegister() {
           DATE / MONTH / YEAR FIELDS
       ===================================== */}
 
-      <Stack
+      {/* <Stack
         direction="row"
         flexWrap="wrap"
         useFlexGap
         gap={1.5}
         sx={{ mb: 2 }}
-      >
+      > */}
+      <Stack
+  direction="row"
+  flexWrap="wrap"
+  useFlexGap
+  spacing={0}
+  sx={{
+    mb: 3,
+    columnGap: { xs: "12px", sm: "20px", md: "24px" },
+    rowGap: "16px",
+  }}
+>
         {period === "date" && (
           <TextField
             type="date"
@@ -839,7 +850,7 @@ export default function GstSalesRegister() {
           SELECTED PERIOD - ABOVE TABLE
       ===================================== */}
 
-      <Stack
+      {/* <Stack
         direction={{
           xs: "column",
           sm: "row",
@@ -854,27 +865,46 @@ export default function GstSalesRegister() {
           mb: 1.5,
           px: 0.5,
         }}
-      >
-        <Typography
-          sx={{
-            fontSize: {
-              xs: 14,
-              md: 16,
-            },
-            fontWeight: 700,
-            color: "#1e293b",
-          }}
-        >
-          {periodHeading}
-        </Typography>
+      > */}
+     <Box
+  sx={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    minWidth: 0,
+    mb: 1.5,
+    px: 0.5,
+    gap: 2,
+  }}
+>
+  {/* LEFT SIDE - HEADING */}
+  <Typography
+    sx={{
+      fontSize: { xs: 14, md: 16 },
+      fontWeight: 700,
+      color: "#1e293b",
+      flex: "1 1 auto",
+      minWidth: 0,
+    }}
+  >
+    {periodHeading}
+  </Typography>
 
-        <Typography
-          variant="body2"
-          color="text.secondary"
-        >
-          {filteredRows.length} product entries
-        </Typography>
-      </Stack>
+  {/* RIGHT SIDE - PRODUCT COUNT */}
+  <Typography
+    variant="body2"
+    color="text.secondary"
+    sx={{
+      marginLeft: "auto",
+      flex: "0 0 auto",
+      textAlign: "right",
+      whiteSpace: "nowrap",
+    }}
+  >
+    {filteredRows.length} product entries
+  </Typography>
+</Box>
 
       {/* =====================================
           GST TABLE

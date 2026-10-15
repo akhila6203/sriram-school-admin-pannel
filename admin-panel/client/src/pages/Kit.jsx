@@ -11,6 +11,8 @@ import {
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
 
+import { getImageUrl } from '../utils/imageUrl'
+
 import { useSnackbar } from "../context/SnackbarContext";
 import { formatINR } from "../utils/format";
 
@@ -100,7 +102,8 @@ function KitImage({ src, name, height = 190 }) {
       {src && !failed ? (
         <Box
           component="img"
-          src={imageSrc(src)}
+          // src={imageSrc(src)}
+          src={getImageUrl(src)}
           alt={name || "Kit"}
           onError={() => setFailed(true)}
           sx={{
@@ -767,6 +770,7 @@ if (hasInvalidProduct) {
             >
               <KitImage
                 src={kit.imageUrl}
+                // src={getImageUrl(kit.imageUrl)}
                 name={kit.name}
               />
 
@@ -1141,6 +1145,7 @@ if (hasInvalidProduct) {
                   >
                     <KitImage
                       src={imagePreview || form.imageUrl}
+                      // src={imagePreview || getImageUrl(form.imageUrl)}
                       name={form.name}
                       height={110}
                     />
@@ -1390,7 +1395,7 @@ if (hasInvalidProduct) {
                           }
                         />
                       }
-                      label="Auto-match house color"
+                      label="Auto-match Shirt color"
                     />
                   </Stack>
                 </Box>

@@ -280,3 +280,27 @@ exports.down = async function down(knex) {
   await knex.schema.dropTableIfExists('admin_users');
   await knex.raw('SET FOREIGN_KEY_CHECKS = 1');
 };
+
+
+
+
+
+// CREATE TABLE IF NOT EXISTS admin_user_permissions (
+//     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+//     admin_user_id BIGINT UNSIGNED NOT NULL,
+
+//     permission_key VARCHAR(60) NOT NULL,
+
+//     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+//     UNIQUE KEY unique_user_permission (
+//         admin_user_id,
+//         permission_key
+//     ),
+
+//     CONSTRAINT fk_admin_user_permissions
+//         FOREIGN KEY (admin_user_id)
+//         REFERENCES admin_users(id)
+//         ON DELETE CASCADE
+// );

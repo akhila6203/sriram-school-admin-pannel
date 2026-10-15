@@ -15,7 +15,12 @@ function mapOrder(row) {
     houseColor: row.house_color,
     type: row.type,
     status: row.status,
+
     paymentStatus: row.payment_status,
+    gatewayStatus:
+  row.gateway_status ||
+  (row.payment_status === 'paid' ? 'success' : 'pending'),
+
     paymentMethod: row.payment_method,
     subtotal: Number(row.subtotal),
     tax: Number(row.tax),
@@ -41,10 +46,20 @@ function mapOrder(row) {
 async function counts(req, res, next) {
   try {
     const rows = await db('orders')
-  .where('payment_status', 'paid')
+    .whereIn('payment_status', [
+  'pending',
+  'paid',
+  'partially_refunded',
+  'refunded',
+])
   .select('status')
   .count({ c: '*' })
   .groupBy('status');
+  //   const rows = await db('orders')
+  // .where('payment_status', 'paid')
+  // .select('status')
+  // .count({ c: '*' })
+  // .groupBy('status');
     // const rows = await db('orders').select('status').count({ c: '*' }).groupBy('status');
     const map = {
       placed: 0,
@@ -89,11 +104,27 @@ async function listOrders(req, res, next) {
         's.house_color',
         's.phone',
         db.raw('COUNT(oi.id) as item_count'),
-        db.raw('(SELECT t.txn_id FROM payment_transactions t WHERE t.order_id = o.id ORDER BY t.id DESC LIMIT 1) as txn_id')
+        db.raw(
+  '(SELECT t.txn_id FROM payment_transactions t WHERE t.order_id = o.id ORDER BY t.id DESC LIMIT 1) as txn_id'
+),
+db.raw(`
+  (SELECT t.status
+   FROM payment_transactions t
+   WHERE t.order_id = o.id
+   ORDER BY t.id DESC
+   LIMIT 1) as gateway_status
+`)
+        // db.raw('(SELECT t.txn_id FROM payment_transactions t WHERE t.order_id = o.id ORDER BY t.id DESC LIMIT 1) as txn_id')
       )
       .groupBy('o.id', 's.admission_number', 's.student_name', 's.house_color', 's.phone');
 
-      query = query.where("o.payment_status", "paid");
+      // query = query.where("o.payment_status", "paid");
+      query = query.whereIn('o.payment_status', [
+  'pending',
+  'paid',
+  'partially_refunded',
+  'refunded',
+]);
       
     if (q.search) {
       const s = `%${q.search}%`;

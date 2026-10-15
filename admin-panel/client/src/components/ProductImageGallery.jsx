@@ -4,7 +4,10 @@ import DeleteOutlinedIcon from '@mui/icons-material/DeleteOutlined'
 import StarOutlinedIcon from '@mui/icons-material/StarOutlined'
 import StarBorderOutlinedIcon from '@mui/icons-material/StarBorderOutlined'
 
+import { getImageUrl } from '../utils/imageUrl'
+
 const ACCEPT = 'image/jpeg,image/png,image/webp'
+
 
 function validateFiles(files) {
   const allowed = ['image/jpeg', 'image/png', 'image/webp']
@@ -83,11 +86,23 @@ export default function ProductImageGallery({
               }}
             >
               <Box
-                component="img"
+  component="img"
+  src={URL.createObjectURL(file)}
+  alt=""
+  sx={{
+    width: '100%',
+    height: 96,
+    objectFit: 'cover',
+    borderRadius: 1,
+  }}
+/>
+              {/* <Box
+                // component="img"
+                src={getImageUrl(img.url)}
                 src={URL.createObjectURL(file)}
                 alt=""
                 sx={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 1 }}
-              />
+              /> */}
               <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 0.75 }}>
                 <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 100 }}>
                   Pending
@@ -111,7 +126,18 @@ export default function ProductImageGallery({
                 p: 1,
               }}
             >
-              <Box component="img" src={img.url} alt="" sx={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 1 }} />
+              <Box
+  component="img"
+  src={getImageUrl(img.url)}
+  alt=""
+  sx={{
+    width: '100%',
+    height: 96,
+    objectFit: 'cover',
+    borderRadius: 1,
+  }}
+/>
+              {/* <Box component="img" src={img.url} alt="" sx={{ width: '100%', height: 96, objectFit: 'cover', borderRadius: 1 }} /> */}
               <Stack direction="row" spacing={0.5} sx={{ mt: 0.75 }} flexWrap="wrap">
                 <IconButton
                   size="small"

@@ -260,7 +260,7 @@ export default function StudentDetail() {
               value={s.email}
             />
             <DetailRow
-              label="House"
+              label="Shirt Color"
               value={s.houseColor}
             />
           </DetailCard>

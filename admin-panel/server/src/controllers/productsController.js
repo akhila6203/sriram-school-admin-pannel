@@ -222,22 +222,64 @@ async function listProducts(req, res, next) {
     const allIds = await query.clone().clearSelect().select('p.id');
     const total = allIds.length;
 
-    const rows = await query
-      .orderBy('p.updated_at', 'desc')
-      .limit(q.pageSize)
-      .offset((q.page - 1) * q.pageSize);
+    // 1. Fetch products first
+const rows = await query
+  .orderBy('p.updated_at', 'desc')
+  .limit(q.pageSize)
+  .offset((q.page - 1) * q.pageSize);
+
+// 2. Get product IDs
+const productIds = rows.map((r) => r.id);
+
+// 3. Fetch Class and Gender
+const eligibilityRows = productIds.length
+  ? await db('product_eligibility')
+      .select('product_id', 'class_name', 'gender')
+      .whereIn('product_id', productIds)
+  : [];
+
+// 4. Prepare eligibility map
+const eligibilityMap = {};
+
+eligibilityRows.forEach((row) => {
+  if (!eligibilityMap[row.product_id]) {
+    eligibilityMap[row.product_id] = {
+      classes: [],
+      gender: row.gender,
+    };
+  }
+
+  eligibilityMap[row.product_id].classes.push(row.class_name);
+});
 
     res.json({
       success: true,
       data: {
         items: rows.map((r) => {
-          const total = Number(r.total_stock || 0);
-          const lowAt = Number(r.min_low_stock_threshold || 5);
-          let stockStatus = 'in stock';
-          if (total <= 0) stockStatus = 'out';
-          else if (total <= lowAt) stockStatus = 'low';
-          return mapProduct(r, { stockStatus });
-        }),
+  const total = Number(r.total_stock || 0);
+  const lowAt = Number(r.min_low_stock_threshold || 5);
+
+  let stockStatus = 'in stock';
+
+  if (total <= 0) stockStatus = 'out';
+  else if (total <= lowAt) stockStatus = 'low';
+
+  return {
+    ...mapProduct(r, { stockStatus }),
+
+    classes: eligibilityMap[r.id]?.classes || [],
+
+    gender: eligibilityMap[r.id]?.gender || null,
+  };
+}),
+        // items: rows.map((r) => {
+        //   const total = Number(r.total_stock || 0);
+        //   const lowAt = Number(r.min_low_stock_threshold || 5);
+        //   let stockStatus = 'in stock';
+        //   if (total <= 0) stockStatus = 'out';
+        //   else if (total <= lowAt) stockStatus = 'low';
+        //   return mapProduct(r, { stockStatus });
+        // }),
         pagination: {
           page: q.page,
           pageSize: q.pageSize,

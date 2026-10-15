@@ -44,9 +44,14 @@ const RANGES = [
   ['custom', 'Custom'],
 ]
 
-export default function Gst() {
+// export default function Gst() {
+//   const { showToast } = useSnackbar()
+//   const [tab, setTab] = useState(0)
+export default function Gst({ mode = 'gst' }) {
   const { showToast } = useSnackbar()
+  const isReportsPage = mode === 'reports'
   const [tab, setTab] = useState(0)
+// const [tab, setTab] = useState(isReportsPage ? 0 : 1)
   const [range, setRange] = useState('this_month')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -137,12 +142,64 @@ export default function Gst() {
   }
 }
 
+const handleDownloadExcel = async () => {
+  try {
+    const params = {
+      range,
+      from,
+      to,
+      studentIds: selectedStudents
+        .map((student) => student.id)
+        .join(','),
+    };
+
+    if (selected.length > 0) {
+      params.orderIds = selected.join(',');
+    }
+
+    const response = await api.get(
+      '/admin/gst/reports/export',
+      {
+        params,
+        responseType: 'blob',
+      }
+    );
+
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'reports-sales.xlsx';
+
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  } catch (error) {
+    console.error('Reports Excel download error:', error);
+
+    showToast(
+      error.response?.data?.message ||
+        'Unable to download Reports Excel sheet',
+      'error'
+    );
+  }
+};
+
 const downloadSelectedOrFiltered = async (type) => {
   await downloadDocument(type, selected)
 }
 
+
+
   useEffect(() => {
-    api.get('/admin/students', { params: { page: 1, pageSize: 200 } }).then((r) => {
+    api.get('/admin/students', { params: { page: 1, pageSize: 100 } }).then((r) => {
       setStudents(r.data.data.items || [])
     }).catch(() => {})
   }, [])
@@ -157,7 +214,14 @@ const downloadSelectedOrFiltered = async (type) => {
   }
 
 
- if (tab === 2) {
+//  if (tab === 2) {
+//   api.get('/admin/gst/email-schedule')
+//     .then((r) =>
+//       setSchedule((s) => ({ ...s, ...r.data.data }))
+//     )
+//     .catch(() => {})
+// }
+if (isReportsPage && tab === 1) {
   api.get('/admin/gst/email-schedule')
     .then((r) =>
       setSchedule((s) => ({ ...s, ...r.data.data }))
@@ -180,13 +244,31 @@ const downloadSelectedOrFiltered = async (type) => {
     boxShadow: 'none',
   }}
 >
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}>
+        {/* <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}>
           <Tab label="Reports" />
           <Tab label="GST" />
           <Tab label="Daily Email Report" />
-        </Tabs>
+        </Tabs> */}
+        {isReportsPage ? (
+  <Tabs
+    value={tab}
+    onChange={(_, value) => setTab(value)}
+    variant="scrollable"
+    scrollButtons="auto"
+    sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}
+  >
+    <Tab label="Reports" value={0} />
+    <Tab label="Daily Email Report" value={1} />
+  </Tabs>
+) : (
+  <Tabs value={0} sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}>
+    <Tab label="GST" />
+  </Tabs>
+)}
        <Box sx={{ pt: 2, px: 0, pb: 2 }}>
-          {tab === 0 && (
+          {/* {tab === 0 && ( */}
+          {isReportsPage && tab === 0 && (
+
   <Stack spacing={2}>
 
     {/* RANGE LEFT - DOWNLOAD BUTTONS RIGHT */}
@@ -313,6 +395,25 @@ const downloadSelectedOrFiltered = async (type) => {
         >
           Download packing slips
         </Button>
+        <Button
+  variant="outlined"
+  // startIcon={<DownloadIcon />}
+  startIcon={<DownloadRoundedIcon />}
+  onClick={handleDownloadExcel}
+  sx={{
+    borderColor: "#4F46E5",
+    color: "#4F46E5",
+    textTransform: "none",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+    "&:hover": {
+      borderColor: "#4338CA",
+      backgroundColor: "#EEF2FF",
+    },
+  }}
+>
+  Download Excel
+</Button>
       </Stack>
 
     </Box>
@@ -473,9 +574,11 @@ const downloadSelectedOrFiltered = async (type) => {
             </Stack>
           )}
 
-          {tab === 1 && <GstSalesRegister />}
+          {/* {tab === 1 && <GstSalesRegister />} */}
+          {!isReportsPage && <GstSalesRegister />}
 
-          {tab === 2&& (
+          {/* {tab === 2&& ( */}
+          {isReportsPage && tab === 1 && (
             <Stack spacing={2} maxWidth={640}>
               <Alert severity={schedule.smtpConfigured ? 'success' : 'warning'}>
                 SMTP {schedule.smtpConfigured ? 'configured' : 'not configured — set it in Settings → Email'}

@@ -12,7 +12,13 @@ const env = {
   },
   jwtSecret: process.env.JWT_SECRET || 'dev-jwt-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
-  clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+
+  // clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  adminClientOrigin:
+    process.env.ADMIN_CLIENT_ORIGIN || 'http://localhost:5173',
+  studentClientOrigin:
+    process.env.STUDENT_CLIENT_ORIGIN || 'http://localhost:5174',
+
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   adminSeedEmail: process.env.ADMIN_SEED_EMAIL || 'admin@scholarstore.local',
   adminSeedPassword: process.env.ADMIN_SEED_PASSWORD || 'Admin@12345',

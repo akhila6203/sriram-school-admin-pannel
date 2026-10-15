@@ -471,6 +471,57 @@ gender: res.data.eligibility?.gender || "both",
 <Grid size={{ xs: 12, md: 6 }}>
   <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
     <TextField
+  select
+  fullWidth
+  label="Applicable Class"
+  value={selectedClass}
+  onChange={(e) => {
+    const value = e.target.value;
+
+    if (value === "other") {
+      setSelectedClass("other");
+      return;
+    }
+
+    if (value) {
+      setForm((f) => ({
+        ...f,
+        classes: [...new Set([...f.classes, value])],
+      }));
+    }
+
+    setSelectedClass("");
+  }}
+  SelectProps={{
+    MenuProps: {
+      disableAutoFocusItem: true,
+      MenuListProps: {
+        autoFocusItem: false,
+      },
+      PaperProps: {
+        sx: {
+          maxHeight: 300,
+          overflowY: "auto",
+        },
+      },
+    },
+  }}
+>
+  <MenuItem value="">Select Class</MenuItem>
+
+  {CLASS_OPTIONS.map((value) => (
+    <MenuItem key={value} value={value}>
+      {["Nursery", "LKG", "UKG"].includes(value)
+        ? value
+        : `Class ${value}`}
+    </MenuItem>
+  ))}
+
+  <MenuItem value="other">
+    Other (Enter Manually)
+  </MenuItem>
+</TextField>
+    {/* <TextField
       select
       fullWidth
       label="Applicable Class"
@@ -499,7 +550,7 @@ gender: res.data.eligibility?.gender || "both",
       ))}
 
       <MenuItem value="other">Other (Enter Manually)</MenuItem>
-    </TextField>
+    </TextField> */}
 
     {selectedClass === "other" && (
       <Box sx={{ display: "flex", gap: 1 }}>

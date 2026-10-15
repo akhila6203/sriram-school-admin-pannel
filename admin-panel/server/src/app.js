@@ -3,7 +3,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
+
 const path = require('path');
+const { uploadRoot } = require('./middleware/upload');
+
 const env = require('./config/env');
 const auth = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
@@ -26,9 +29,12 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // Admin and Student frontend URLs
 const allowedOrigins = [
-  process.env.ADMIN_CLIENT_ORIGIN,
-  process.env.STUDENT_CLIENT_ORIGIN,
+  // process.env.ADMIN_CLIENT_ORIGIN,
+  // process.env.STUDENT_CLIENT_ORIGIN,
+  env.adminClientOrigin,
+  env.studentClientOrigin,
 ]
+
   .filter(Boolean)
   .map((origin) => origin.trim().replace(/\/$/, ""));
 
@@ -77,7 +83,8 @@ app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use('/uploads', express.static(path.resolve(env.uploadDir)));
+app.use('/uploads', express.static(uploadRoot));
+// app.use('/uploads', express.static(path.resolve(env.uploadDir)));
 
 app.get('/api/health', (req, res) => {
   res.json({

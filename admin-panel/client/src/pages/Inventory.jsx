@@ -25,6 +25,7 @@ import {
   downloadInventoryReport,
   adjustInventoryStock,
 } from '../api/inventoryReport'
+import { getImageUrl } from '../utils/imageUrl'
 
 import { useSnackbar } from '../context/SnackbarContext'
 import { formatINR, formatNumber } from '../utils/format'
@@ -87,17 +88,17 @@ function formatDisplayDate(value) {
   return `${day} ${MONTHS[Number(month) - 1] || month} ${year}`
 }
 
-function getImageUrl(value) {
-  if (!value) return ''
+// function getImageUrl(value) {
+//   if (!value) return ''
 
-  const path = String(value).replace(/\\/g, '/')
+//   const path = String(value).replace(/\\/g, '/')
 
-  if (/^(https?:\/\/|data:|blob:)/i.test(path)) {
-    return path
-  }
+//   if (/^(https?:\/\/|data:|blob:)/i.test(path)) {
+//     return path
+//   }
 
-  return `/${path.replace(/^\/+/, '')}`
-}
+//   return `/${path.replace(/^\/+/, '')}`
+// }
 
 function DownloadIcon() {
   return (
@@ -771,6 +772,7 @@ export default function Inventory() {
           title="Units In Stock"
           value={formatNumber(summary.unitsInStock || 0)}
         />
+        
 
         <SummaryCard
           title="Low Stock"

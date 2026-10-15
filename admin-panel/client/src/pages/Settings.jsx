@@ -130,26 +130,27 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader
-        title="Settings"
-        subtitle="School profile, store rules, payments, and email."
-      />
 
-      <Card variant="outlined">
+      {/* <Card variant="outlined"> */}
+      <Box sx={{ width: '60%', bgcolor: 'transparent' }}>
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
           variant="scrollable"
           scrollButtons="auto"
+          // sx={{ px: 0, bgcolor: 'transparent', border: 'none' }}
           sx={{ px: 1, borderBottom: 1, borderColor: 'divider' }}
         >
-          <Tab label="General" />
+           <Tab label="General" value={0} />
+  <Tab label="Payments – Paytm" value={2} />
+  <Tab label="Email (SMTP)" value={3} />
+          {/* <Tab label="General" />
           <Tab label="Store Rules" />
           <Tab label="Payments – Paytm" />
           <Tab label="Email (SMTP)" />
-          <Tab label="Payment methods" />
+          <Tab label="Payment methods" /> */}
         </Tabs>
-        <CardContent>
+        <Box>
           <TabPanel value={tab} index={0}>
             <Stack spacing={2} maxWidth={640}>
               <TextField label="School name" fullWidth value={form.school_name || ''} onChange={(e) => setField('school_name', e.target.value)} />
@@ -423,8 +424,9 @@ export default function Settings() {
               </Button>
             </Stack>
           </TabPanel>
-        </CardContent>
-      </Card>
+        </Box>
+      </Box>
+
     </>
   )
 }
