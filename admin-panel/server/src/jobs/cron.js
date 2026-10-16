@@ -6,6 +6,11 @@ const paymentsController = require('../controllers/paymentsController');
 const {
   sendDailyReportEmail,
 } = require('../services/dailyReportEmailService');
+const paytmService = require("../services/paytmService");
+
+const {
+  sendOrderConfirmationEmail,
+} = require("../services/orderEmailService");
 
 async function expirePendingPaytm() {
   const cutoff = new Date(Date.now() - 30 * 60 * 1000);

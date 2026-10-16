@@ -9,8 +9,25 @@ async function getDashboard(req, res, next) {
     );
 
     // Dashboard orders: Paid + Pending only
-    const eligible = (query, column = 'payment_status') =>
-      query.whereIn(column, ['paid', 'pending']);
+    // const eligible = (query, column = 'payment_status') =>
+    //   query.whereIn(column, ['paid', 'pending']);
+    // Show paid orders and payment attempts awaiting confirmation.
+// Hide orders where Paytm was only opened and closed.
+const eligible = (query, alias = "orders") =>
+  query
+    .whereIn(`${alias}.payment_status`, [
+      "paid",
+      "pending",
+    ])
+    .andWhere(function () {
+      this.where(`${alias}.payment_status`, "paid")
+        .orWhereExists(function () {
+          this.select(db.raw("1"))
+            .from("payment_transactions as pt")
+            .whereRaw(`pt.order_id = ${alias}.id`)
+            .where("pt.status", "pending");
+        });
+    });
 
     const [
       studentsTotal,
@@ -67,10 +84,14 @@ async function getDashboard(req, res, next) {
         .count({ c: '*' })
         .first(),
 
-      db('orders')
-        .where('payment_status', 'pending')
-        .count({ c: '*' })
-        .first(),
+      // db('orders')
+      //   .where('payment_status', 'pending')
+      //   .count({ c: '*' })
+      //   .first(),
+      eligible(db("orders"))
+  .where("orders.payment_status", "pending")
+  .count({ c: "*" })
+  .first(),
 
       db('product_variants')
         .where('stock_qty', '>', 0)
@@ -191,9 +212,14 @@ async function getDashboard(req, res, next) {
       .limit(8);
 
     // Only latest 5 Paid / Pending orders
-    const recentOrders = await db('orders as o')
-      .join('students as s', 's.id', 'o.student_id')
-      .whereIn('o.payment_status', ['paid', 'pending'])
+    // const recentOrders = await db('orders as o')
+    //   .join('students as s', 's.id', 'o.student_id')
+    const recentOrders = await eligible(
+  db("orders as o"),
+  "o"
+)
+  .join("students as s", "s.id", "o.student_id")
+      // .whereIn('o.payment_status', ['paid', 'pending'])
       .select(
         'o.id',
         'o.order_number',
