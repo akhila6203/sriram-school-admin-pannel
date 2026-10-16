@@ -194,62 +194,62 @@ export default function AdminUsers() {
     <Box sx={{ minWidth: 0 }}>
       {/* PAGE HEADER */}
 
-      <Stack
-        direction={{
-          xs: "column",
-          sm: "row",
-        }}
-        justifyContent="space-between"
-        alignItems={{
-          xs: "stretch",
-          sm: "center",
-        }}
-        spacing={2}
-        mb={3}
-      >
-        <Box>
-          <Typography
-            variant="h5"
-            fontWeight={700}
-          >
-            Users / Admins
-          </Typography>
+      {/* SEARCH LEFT - ADD USER RIGHT */}
 
-          <Typography
-            color="text.secondary"
-            variant="body2"
-          >
-            {users.length} admin users
-          </Typography>
-        </Box>
+<Box
+  sx={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 2,
+    mb: 2,
+    width: "100%",
+    minWidth: 0,
+  }}
+>
+  {/* LEFT SIDE SEARCH */}
 
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={openCreate}
-        >
-          Add user
-        </Button>
-      </Stack>
+  <TextField
+    size="small"
+    placeholder="Search name or email"
+    value={search}
+    onChange={(event) => setSearch(event.target.value)}
+    sx={{
+      width: {
+        xs: "65%",
+        sm: 330,
+      },
+      maxWidth: "100%",
+      minWidth: 0,
+      "& .MuiOutlinedInput-root": {
+        backgroundColor: "#fff",
+        borderRadius: 2,
+      },
+    }}
+  />
 
-      {/* SEARCH */}
+  {/* RIGHT SIDE ADD USER */}
 
-      <TextField
-        size="small"
-        label="Search name or email"
-        value={search}
-        onChange={(event) =>
-          setSearch(event.target.value)
-        }
-        sx={{
-          mb: 2,
-          width: {
-            xs: "100%",
-            sm: 330,
-          },
-        }}
-      />
-
+  <Button
+    variant="contained"
+    startIcon={<AddIcon />}
+    onClick={openCreate}
+    sx={{
+      flexShrink: 0,
+      textTransform: "none",
+      fontWeight: 600,
+      borderRadius: 2,
+      px: {
+        xs: 1.5,
+        sm: 3,
+      },
+      py: 1.1,
+      whiteSpace: "nowrap",
+    }}
+  >
+    Add user
+  </Button>
+</Box>
       {error && !open && (
         <Typography
           color="error"

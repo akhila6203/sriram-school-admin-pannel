@@ -471,7 +471,14 @@ if (
   );
 }
 
-    const shipping = Number(settings.shipping_fee || 0);
+    // const shipping = Number(settings.shipping_fee || 0);
+    const shippingFee = Number(settings.shipping_fee ?? 0);
+
+if (!Number.isFinite(shippingFee) || shippingFee < 0) {
+  throw new AppError("Invalid shipping fee in Admin Settings", 500);
+}
+
+const shipping = Math.round(shippingFee * 100) / 100;
     const prefix = settings.order_number_prefix || 'SS';
 
 
@@ -636,7 +643,8 @@ if (
         cgstTotal = kitSplit.cgst;
         sgstTotal = kitSplit.sgst;
         igstTotal = kitSplit.igst;
-        total = round2(kitSplit.lineTotal + shipping);
+        // total = round2(kitSplit.lineTotal + shipping);
+        total = round2(gst.itemsTotal + shipping);
         if (lineRows[0]) {
           lineRows[0].taxable_value = taxableTotal;
           lineRows[0].cgst = cgstTotal;

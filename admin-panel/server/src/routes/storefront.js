@@ -220,6 +220,11 @@ router.delete(
   storefrontCartController.removeItem
 );
 
+router.post(
+  "/payments/paytm/attempt",
+  storefrontPaytm.recordAttempt
+);
+
 module.exports = router;
 
 

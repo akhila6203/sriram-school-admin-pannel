@@ -20,11 +20,15 @@ async function listPayments(req, res, next) {
     const q = schema.parse(req.query);
     let query = db('payment_transactions as t')
   .join('orders as o', 'o.id', 't.order_id')
-  .whereIn('t.status', [
-    'initiated',
-    'pending',
-    'success',
-  ])
+  .whereIn("t.status", [
+  "pending",
+  "success",
+])
+  // .whereIn('t.status', [
+  //   'initiated',
+  //   'pending',
+  //   'success',
+  // ])
   .whereIn('o.payment_status', [
     'pending',
     'paid',
@@ -113,7 +117,9 @@ async function paymentSummary(req, res, next) {
     const totalTransactions =
       Number(summary?.totalTransactions || 0);
 
-      const attemptSummary = await db('payment_transactions')
+      // const attemptSummary = await db('payment_transactions')
+      const attemptSummary = await db("payment_transactions")
+  .whereIn("status", ["pending", "success"])
   .select(
     db.raw('COUNT(*) AS total'),
     db.raw(`

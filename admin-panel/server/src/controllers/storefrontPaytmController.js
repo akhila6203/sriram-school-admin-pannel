@@ -341,4 +341,46 @@ async function status(req, res, next) {
   }
 }
 
-module.exports = { initiate, callback, status };
+async function recordAttempt(req, res, next) {
+  try {
+    const order = await db("orders")
+      .where({
+        id: req.body.orderId,
+        student_id: req.student.id,
+      })
+      .first();
+
+    if (!order) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (
+      order.payment_status !== "pending" ||
+      !order.paytm_order_id
+    ) {
+      return res.json({ success: true });
+    }
+
+    await db("payment_transactions")
+      .where({
+        order_id: order.id,
+        paytm_order_id: order.paytm_order_id,
+        status: "initiated",
+      })
+      .update({
+        status: "pending",
+        updated_at: db.fn.now(),
+      });
+
+    return res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = {
+  initiate,
+  callback,
+  status,
+  recordAttempt,
+};

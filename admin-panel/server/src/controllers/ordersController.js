@@ -54,6 +54,15 @@ async function counts(req, res, next) {
 ])
   .select('status')
   .count({ c: '*' })
+  .where(function () {
+  this.where("payment_status", "!=", "pending")
+    .orWhereExists(function () {
+      this.select(db.raw("1"))
+        .from("payment_transactions as pt")
+        .whereRaw("pt.order_id = orders.id")
+        .where("pt.status", "pending");
+    });
+})
   .groupBy('status');
   //   const rows = await db('orders')
   // .where('payment_status', 'paid')
@@ -119,12 +128,28 @@ db.raw(`
       .groupBy('o.id', 's.admission_number', 's.student_name', 's.house_color', 's.phone');
 
       // query = query.where("o.payment_status", "paid");
-      query = query.whereIn('o.payment_status', [
-  'pending',
-  'paid',
-  'partially_refunded',
-  'refunded',
-]);
+//       query = query.whereIn('o.payment_status', [
+//   'pending',
+//   'paid',
+//   'partially_refunded',
+//   'refunded',
+// ]);
+query = query
+  .whereIn("o.payment_status", [
+    "pending",
+    "paid",
+    "partially_refunded",
+    "refunded",
+  ])
+  .andWhere(function () {
+    this.where("o.payment_status", "!=", "pending")
+      .orWhereExists(function () {
+        this.select(db.raw("1"))
+          .from("payment_transactions as pt")
+          .whereRaw("pt.order_id = o.id")
+          .where("pt.status", "pending");
+      });
+  });
       
     if (q.search) {
       const s = `%${q.search}%`;

@@ -86,21 +86,59 @@ export default function Dashboard() {
     ['Online payments', formatINR(c.onlinePayments)],
   ]
 
-  const statuses = Object.entries(data.statusCounts || {})
+  // const statuses = Object.entries(data.statusCounts || {})
+  const orderStatusNames = [
+  'placed',
+  'confirmed',
+  'packed',
+  'shipped',
+  'delivered',
+  'cancelled',
+  'returned',
+]
+
+const statuses = orderStatusNames.map((status) => [
+  status,
+  Number(data.statusCounts?.[status] || 0),
+])
+
+const paymentCounts = {
+  paid: Number(data.paymentCounts?.paid || 0),
+  pending: Number(data.paymentCounts?.pending || 0),
+}
 
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="Overview of sales, stock, and students." />
+      {/* <PageHeader title="Dashboard" subtitle="Overview of sales, stock, and students." /> */}
 
-      <Grid container spacing={2} sx={{ mb: 2 }}>
+      {/* <Grid container spacing={2} sx={{ mb: 2 }}>
         {kpis.map(([title, value]) => (
-          <Grid key={title} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+          <Grid key={title} size={{ xs: 12, sm: 6, md: 4, lg: 2.4 }}>
             <StatCard title={title} value={value} />
           </Grid>
         ))}
-      </Grid>
+      </Grid> */}
+      <Box
+  sx={{
+    display: 'grid',
+    gridTemplateColumns: {
+      xs: '1fr',
+      sm: 'repeat(2, minmax(0, 1fr))',
+      md: 'repeat(3, minmax(0, 1fr))',
+      lg: 'repeat(5, minmax(0, 1fr))',
+    },
+    gap: 2,
+    mb: 2,
+  }}
+>
+  {kpis.map(([title, value]) => (
+    <Box key={title} sx={{ minWidth: 0 }}>
+      <StatCard title={title} value={value} />
+    </Box>
+  ))}
+</Box>
 
-      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, textTransform: 'uppercase' }}>
+      {/* <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, textTransform: 'uppercase' }}>
         Order status
       </Typography>
       <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -114,7 +152,155 @@ export default function Dashboard() {
             </Card>
           </Grid>
         ))}
-      </Grid>
+      </Grid> */}
+      
+<Typography
+  variant="subtitle2"
+  color="text.secondary"
+  sx={{
+    mb: 1,
+    textTransform: 'uppercase',
+  }}
+>
+  Order status
+</Typography>
+
+<Box
+  sx={{
+    display: 'grid',
+    gridTemplateColumns: {
+      xs: 'repeat(2, minmax(0, 1fr))',
+      sm: 'repeat(3, minmax(0, 1fr))',
+      md: 'repeat(4, minmax(0, 1fr))',
+      lg: 'repeat(9, minmax(0, 1fr))',
+    },
+    gap: 2,
+    mb: 3,
+  }}
+>
+  {/* Existing order statuses - unchanged */}
+  {statuses.map(([status, count]) => (
+    <Card
+      key={status}
+      variant="outlined"
+      sx={{
+        minWidth: 0,
+        borderRadius: 2,
+      }}
+    >
+      <CardContent
+        sx={{
+          px: 1.5,
+          py: 1.5,
+          '&:last-child': {
+            pb: 1.5,
+          },
+        }}
+      >
+        <StatusBadge status={status} />
+
+        <Typography
+          variant="h6"
+          sx={{
+            mt: 1,
+            fontWeight: 700,
+          }}
+        >
+          {count}
+        </Typography>
+      </CardContent>
+    </Card>
+  ))}
+
+  {/* Paid - successful payments */}
+  <Card
+    variant="outlined"
+    sx={{
+      minWidth: 0,
+      borderRadius: 2,
+    }}
+  >
+    <CardContent
+      sx={{
+        px: 1.5,
+        py: 1.5,
+        '&:last-child': {
+          pb: 1.5,
+        },
+      }}
+    >
+      <Box
+        sx={{
+          display: 'inline-block',
+          bgcolor: '#059669',
+          color: '#fff',
+          px: 1.2,
+          py: 0.4,
+          borderRadius: 5,
+          fontSize: 12,
+          fontWeight: 700,
+        }}
+      >
+        Paid
+      </Box>
+
+      <Typography
+        variant="h6"
+        sx={{
+          mt: 1,
+          fontWeight: 700,
+        }}
+      >
+        {paymentCounts.paid}
+      </Typography>
+    </CardContent>
+  </Card>
+
+  {/* Pending - payment not completed */}
+  <Card
+    variant="outlined"
+    sx={{
+      minWidth: 0,
+      borderRadius: 2,
+    }}
+  >
+    <CardContent
+      sx={{
+        px: 1.5,
+        py: 1.5,
+        '&:last-child': {
+          pb: 1.5,
+        },
+      }}
+    >
+      <Box
+        sx={{
+          display: 'inline-block',
+          bgcolor: '#f59e0b',
+          color: '#fff',
+          px: 1.2,
+          py: 0.4,
+          borderRadius: 5,
+          fontSize: 12,
+          fontWeight: 700,
+        }}
+      >
+        Pending
+      </Box>
+
+      <Typography
+        variant="h6"
+        sx={{
+          mt: 1,
+          fontWeight: 700,
+        }}
+      >
+        {paymentCounts.pending}
+      </Typography>
+    </CardContent>
+  </Card>
+</Box>
+
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, lg: 8 }}>
@@ -182,13 +368,32 @@ export default function Dashboard() {
             <CardContent>
               <Typography fontWeight={600} sx={{ mb: 1 }}>Recent orders</Typography>
               <List dense>
-                {data.recentOrders.map((o) => (
+                {/* {data.recentOrders.map((o) => ( */}
+                {(data.recentOrders || []).slice(0, 5).map((o) => (
                   <ListItem key={o.id} disableGutters>
                     <ListItemText
                       primary={<Link component={RouterLink} to={`/admin/orders/${o.id}`} underline="hover">{o.order_number}</Link>}
                       secondary={`${o.student_name} · ${formatINR(o.total)}`}
                     />
-                    <StatusBadge status={o.status} />
+                    {/* <StatusBadge status={o.status} /> */}
+                    <Box
+  sx={{
+    bgcolor:
+      o.payment_status === 'paid'
+        ? '#059669'
+        : '#f59e0b',
+    color: '#fff',
+    borderRadius: 5,
+    px: 1.2,
+    py: 0.4,
+    fontSize: 12,
+    fontWeight: 700,
+  }}
+>
+  {o.payment_status === 'paid'
+    ? 'Paid'
+    : 'Pending'}
+</Box>
                   </ListItem>
                 ))}
                 {!data.recentOrders.length && <Typography variant="body2" color="text.secondary">No orders yet</Typography>}
