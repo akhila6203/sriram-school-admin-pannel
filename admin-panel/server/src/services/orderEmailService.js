@@ -22,7 +22,7 @@ async function sendCustomerOrderEmail(orderId) {
     .where(q => q.whereIn('status', ['pending','failed'])
       .orWhere(q2 => q2.where('status','sending')
         .where('claimed_at','<',db.raw('DATE_SUB(NOW(), INTERVAL 15 MINUTE)'))))
-    .where('attempts','<',5)
+    .where('attempts','<',10)
     .update({ status: 'sending', claimed_at: db.fn.now(),
       attempts: db.raw('attempts + 1'), recipient_email: recipient });
   if (!updated) return false;

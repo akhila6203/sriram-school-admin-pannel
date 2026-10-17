@@ -644,7 +644,8 @@ if (
         sgstTotal = kitSplit.sgst;
         igstTotal = kitSplit.igst;
         // total = round2(kitSplit.lineTotal + shipping);
-        total = round2(gst.itemsTotal + shipping);
+        total = round2(kitSplit.lineTotal + shipping);
+        // total = round2(gst.itemsTotal + shipping);
         if (lineRows[0]) {
           lineRows[0].taxable_value = taxableTotal;
           lineRows[0].cgst = cgstTotal;
