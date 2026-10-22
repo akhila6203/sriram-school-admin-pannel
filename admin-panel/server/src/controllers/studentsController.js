@@ -202,10 +202,17 @@ async function getStudent(req, res, next) {
       throw new AppError('Student not found', 404);
     }
 
-    const orders = await db('orders')
-      .where({ student_id: student.id })
-      .orderBy('created_at', 'desc')
-      .limit(50);
+    // const orders = await db('orders')
+    //   .where({ student_id: student.id })
+    //   .orderBy('created_at', 'desc')
+    //   .limit(50);
+    
+const orders = await db('orders')
+  .where('student_id', student.id)
+  .whereIn('payment_status', ['paid', 'pending'])
+  .orderBy('created_at', 'desc')
+  .limit(50);
+
 
     const extras = await db('student_extra_fields')
       .where({ student_id: student.id })

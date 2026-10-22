@@ -266,6 +266,15 @@ async function applyPaidResult(trx, order, statusJson, paytmOrderId) {
     });
 
   // Remove only the purchased quantities from the
+  // Update kit status only after successful kit payment.
+if (order.type === "kit") {
+  await trx("students")
+    .where({ id: order.student_id })
+    .update({
+      kit_status: "ordered",
+      updated_at: trx.fn.now(),
+    });
+}
   // student's cart after verified successful payment.
   const studentCart = await trx("carts")
     .where({ student_id: order.student_id })

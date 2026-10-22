@@ -50,8 +50,48 @@ async function sendCustomerOrderEmail(orderId) {
   }
 }
 
+
+
+async function retryFailedOrderEmails() {
+  const rows = await db("order_email_deliveries as d")
+    .join("orders as o", "o.id", "d.order_id")
+    .where("o.payment_status", "paid")
+    .where("d.email_type", "order_confirmation")
+    .where("d.status", "failed")
+    .where("d.attempts", "<", 10)
+    .select("d.order_id");
+
+  console.log("Failed paid order emails found:", rows.length);
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    try {
+      const result = await sendCustomerOrderEmail(row.order_id);
+
+      if (result) {
+        sent++;
+        console.log("Email sent for order ID:", row.order_id);
+      }
+    } catch (error) {
+      failed++;
+      console.error(
+        "Email retry failed for order ID:",
+        row.order_id,
+        error.message
+      );
+    }
+  }
+
+  console.log("Retry completed:", { sent, failed });
+
+  return { sent, failed };
+}
+
 module.exports = {
   sendCustomerOrderEmail,
   sendOrderConfirmationEmail: sendCustomerOrderEmail,
+    retryFailedOrderEmails,
 };
 // module.exports = { sendCustomerOrderEmail };

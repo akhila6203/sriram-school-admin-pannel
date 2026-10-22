@@ -305,16 +305,45 @@ async function getProduct(req, res, next) {
     const images = await db('product_images').where({ product_id: row.id }).orderBy('sort_order');
     const variants = await db('product_variants').where({ product_id: row.id }).orderBy('id');
     const eligibility = await getProductEligibility(row.id);
-    const movements = await db('stock_movements as m')
-      .join('product_variants as v', 'v.id', 'm.variant_id')
-      .where('v.product_id', row.id)
-      .select('m.*', 'v.sku')
-      .orderBy('m.created_at', 'desc')
-      .limit(50);
+    // const movements = await db('stock_movements as m')
+    //   .join('product_variants as v', 'v.id', 'm.variant_id')
+    //   .where('v.product_id', row.id)
+    //   .select('m.*', 'v.sku')
+    //   .orderBy('m.created_at', 'desc')
+    //   .limit(50);
+    
+
+const movements = await db('stock_movements as m')
+  .join('product_variants as v', 'v.id', 'm.variant_id')
+  .where('v.product_id', row.id)
+
+  // Hide storefront checkout reservation entries
+  .where(function () {
+    this.whereNull('m.note')
+      .orWhere('m.note', '!=', 'Storefront reserve');
+  })
+
+  // Hide failed and expired Paytm entries
+  .where(function () {
+    this.whereNull('m.note')
+      .orWhere(function () {
+        this.where('m.note', 'not like', '%Paytm failed%')
+          .where('m.note', 'not like', '%Paytm expired%');
+      });
+  })
+
+  .select('m.*', 'v.sku')
+  .orderBy('m.created_at', 'desc')
+  .limit(50);
+
+
     const salesRow = await db('order_items as oi')
       .join('orders as o', 'o.id', 'oi.order_id')
+      // .where('oi.product_id', row.id)
+      // .whereNotIn('o.status', ['cancelled'])
       .where('oi.product_id', row.id)
-      .whereNotIn('o.status', ['cancelled'])
+.where('o.payment_status', 'paid')
+.whereNotIn('o.status', ['cancelled'])
       .countDistinct({ orders: 'o.id' })
       .sum({ qty: 'oi.quantity' })
       .sum({ revenue: 'oi.line_total' })
